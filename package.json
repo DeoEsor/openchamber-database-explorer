@@ -1,0 +1,50 @@
+{
+  "name": "openchamber-db-connect",
+  "version": "1.1.0",
+  "description": "Database Explorer for OpenChamber: PostgreSQL, MongoDB and Redis connections, native object browsing and a PostgreSQL SQL console.",
+  "author": "DeoEsor <RuilanValeriy@yandex.ru>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DeoEsor/openchamber-database-explorer.git"
+  },
+  "keywords": [
+    "openchamber",
+    "database",
+    "postgresql",
+    "mongodb",
+    "redis"
+  ],
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "openchamber": {
+    "apiVersion": 1,
+    "engines": {
+      "openchamber": ">=2.5.0"
+    },
+    "contributes": {
+      "panel": {
+        "id": "db-connect",
+        "name": "Database Explorer",
+        "icon": "icon.svg",
+        "entry": "panel/index.html"
+      },
+      "service": {
+        "entry": "service/main.js",
+        "runtime": "host",
+        "permissions": {}
+      },
+      "attach": false
+    }
+  },
+  "scripts": {
+    "build": "bun run scripts/build.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@openchamber/sdk": "^2.6.0",
+    "mongodb": "^7.9.0",
+    "postgres": "^3.4.5",
+    "redis": "^6.3.1"
+  }
+}
