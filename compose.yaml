@@ -1,0 +1,57 @@
+name: database-explorer-demo
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: database-explorer-postgres
+    environment:
+      POSTGRES_USER: explorer
+      POSTGRES_PASSWORD: explorer
+      POSTGRES_DB: acme
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./demo/postgres:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U explorer -d acme"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  mongodb:
+    image: mongo:8
+    container_name: database-explorer-mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: explorer
+      MONGO_INITDB_ROOT_PASSWORD: explorer
+      MONGO_INITDB_DATABASE: acme
+    ports:
+      - "127.0.0.1:57017:27017"
+    volumes:
+      - mongodb-data:/data/db
+      - ./demo/mongodb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --username explorer --password explorer --authenticationDatabase admin --eval 'db.runCommand({ ping: 1 }).ok' | grep 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    container_name: database-explorer-valkey
+    command: ["valkey-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:56379:6379"
+    volumes:
+      - valkey-data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  postgres-data:
+  mongodb-data:
+  valkey-data:

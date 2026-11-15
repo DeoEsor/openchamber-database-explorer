@@ -1,7 +1,7 @@
 {
   "name": "openchamber-db-connect",
-  "version": "1.1.0",
-  "description": "Database Explorer for OpenChamber: PostgreSQL, MongoDB and Redis connections, native object browsing and a PostgreSQL SQL console.",
+  "version": "1.2.0",
+  "description": "A DataGrip-inspired workspace for OpenChamber with PostgreSQL editing and SQL, MongoDB documents, and Redis/Valkey browsing.",
   "author": "DeoEsor <RuilanValeriy@yandex.ru>",
   "repository": {
     "type": "git",
@@ -12,7 +12,10 @@
     "database",
     "postgresql",
     "mongodb",
-    "redis"
+    "redis",
+    "valkey",
+    "database-explorer",
+    "datagrip"
   ],
   "private": true,
   "type": "module",
