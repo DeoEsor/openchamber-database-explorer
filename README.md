@@ -5,9 +5,9 @@
 
   **A DataGrip-inspired database workspace inside your OpenChamber sidebar.**
 
-  Browse schemas, inspect real data, edit PostgreSQL rows safely, and run SQL without switching away from your coding session.
+  Browse schemas, edit PostgreSQL, MongoDB, and Redis/Valkey data safely, and run SQL without leaving your coding session.
 
-  [![Version](https://img.shields.io/badge/version-1.2.0-4f8cff)](https://github.com/DeoEsor/openchamber-database-explorer)
+  [![Version](https://img.shields.io/badge/version-1.3.0-4f8cff)](https://github.com/DeoEsor/openchamber-database-explorer)
   [![OpenChamber](https://img.shields.io/badge/OpenChamber-%E2%89%A52.5.0-5b5bd6)](https://github.com/openchamber/openchamber)
   [![License](https://img.shields.io/badge/license-MIT-3fb96f)](LICENSE)
 
@@ -21,7 +21,8 @@ Database Explorer brings the familiar parts of a database IDE into OpenChamber:
 - **Stay in context.** Check the data behind a bug, verify a migration, or inspect a document while keeping your project and agent session open.
 - **Keep your orientation.** A persistent connection and object tree stays on the left while tables and SQL consoles open as tabs on the right.
 - **Work with more than rows.** Switch between Table, JSON, and Text views, inspect individual values, sort and filter data, and export results.
-- **Edit with guardrails.** PostgreSQL changes are staged before they are applied as one transactional batch. Composite-primary-key tables remain read-only.
+- **Edit with guardrails.** Stage transactional PostgreSQL changes, edit canonical MongoDB BSON documents, and use dedicated editors for every supported Redis/Valkey type.
+- **Handle typed values deliberately.** Use date/time widgets, UUID generation, explicit NULL/default/missing states, TTL preservation, and optimistic conflict checks instead of overwriting data with ambiguous display strings.
 - **Use your existing databases.** Connect directly to PostgreSQL, MongoDB, Redis, or Valkey—no hosted account, sync service, or telemetry setup required.
 
 ![PostgreSQL table browsing in Database Explorer](docs/assets/postgres-data.png)
@@ -30,9 +31,9 @@ Database Explorer brings the familiar parts of a database IDE into OpenChamber:
 
 | Engine | What you can do |
 | --- | --- |
-| **PostgreSQL** | Browse schemas, tables, and views; inspect column metadata; sort, filter, and paginate; edit rows; insert and delete records; export data; run SQL and `EXPLAIN`; keep SQL history. |
-| **MongoDB** | Discover databases and collections and browse documents with filtering, pagination, field inspection, and Table/JSON/Text views. Read-only. |
-| **Redis / Valkey** | Discover logical databases and browse keys, values, types, and TTLs with filtering and pagination. Read-only. |
+| **PostgreSQL** | Browse schemas, tables, and views; inspect column defaults and identity metadata; stage row edits transactionally; use date/time widgets and UUID generation; insert and delete records; export data; run SQL and `EXPLAIN`; keep SQL history. |
+| **MongoDB** | Browse documents; insert, replace, and delete documents; edit top-level fields as canonical Extended JSON; distinguish null, empty, and missing values; detect stale writes. |
+| **Redis / Valkey** | Browse logical databases; create and delete keys; edit strings, hashes, lists, sets, sorted sets, and streams; manage TTLs; use atomic optimistic mutations that preserve values and expiration. |
 
 > Redis-compatible Valkey servers use the same connection type. The interface labels these connections as Redis.
 
@@ -147,29 +148,50 @@ Run a single SQL statement with **Ctrl/Cmd+Enter**, inspect the result grid, exp
 
 ### MongoDB documents
 
-Browse collections and switch between tabular, JSON, and raw text representations.
+Browse collections, switch between tabular, JSON, and raw text representations, and edit BSON values without losing their types.
 
 ![MongoDB document browsing](docs/assets/mongodb-documents.png)
 
 ### Redis and Valkey keys
 
-Inspect keys, values, types, and TTLs in a read-only view.
+Inspect keys, values, types, and TTLs, then open the dedicated key editor for type-safe changes.
 
 ![Valkey key browsing](docs/assets/valkey-keys.png)
+
+## Typed editing
+
+### PostgreSQL
+
+Double-click an editable cell or use the row inspector. Date, time, timestamp, and timestamptz columns get dedicated controls; UUID fields can generate a new UUID v4 without replacing an existing value automatically. **Value**, **NULL**, and **Default** are explicit states: an empty string stays an empty string, NULL is not omitted, and defaults are visible in column metadata. Staged row changes apply in one transaction.
+
+![PostgreSQL date editor](docs/assets/postgres-date-editor.png)
+
+### MongoDB
+
+Edit top-level fields or the full document in canonical Extended JSON. This preserves ObjectId, Date, Decimal128, Int64, nested values, and the distinction between null and missing fields. `_id` is immutable. Updates compare the values you actually viewed and return a conflict instead of overwriting a concurrent change. Standalone MongoDB provides per-document atomicity, not a cross-document transaction. Guarded edits of JavaScript `Code` values with scope are rejected because MongoDB cannot inspect their scope atomically; see the [connection guide](docs/connections.md#mongodb).
+
+![MongoDB document editor](docs/assets/mongodb-document-editor.png)
+
+### Redis / Valkey
+
+The key editor supports strings, hashes, lists, sets, sorted sets, and streams. Multi-step operations use server-side guards, verify expected key type and old values, and preserve TTL. Stream entries can be added or deleted, but are never silently recreated to imitate an in-place edit.
+
+![Redis key editor](docs/assets/redis-key-editor.png)
 
 ## Everyday workflows
 
 - **Find an object:** press **Ctrl/Cmd+K** and search tables, views, collections, keys, or connections.
 - **Open several objects:** each table, collection, keyspace, and SQL console gets its own tab.
 - **Inspect a value:** use the row inspector for long text, JSON, timestamps, and other values that do not fit a cell.
-- **Edit PostgreSQL data:** edit cells or insert/delete rows, review the pending change count, then apply or discard the batch.
+- **Edit data:** stage a PostgreSQL batch, edit MongoDB fields/documents, or open a dedicated Redis/Valkey key editor.
 - **Customize the grid:** sort columns, apply filters, hide columns, and switch between Table, JSON, and Text views.
 - **Export:** download table data as CSV or JSON; SQL result grids also support CSV export.
 
 ## Safety and data storage
 
-- Editing is available only for PostgreSQL tables with a **single-column primary key**. Other PostgreSQL tables, MongoDB, Redis, and Valkey are read-only.
-- Updates and deletes run in a transaction and must affect exactly one row per operation; otherwise the batch rolls back.
+- Direct PostgreSQL editing requires a **single-column primary key**; composite-key tables remain read-only. Updates and deletes run in a transaction and must affect exactly one row per operation.
+- MongoDB writes use canonical BSON values and optimistic original-value checks. A conflict returns HTTP 409 rather than replacing a newer document. Cross-document transactions are not claimed.
+- Redis/Valkey writes use atomic server-side operations with operation-specific type/value guards. Replacements and removals that depend on an old value reject conflicts; additions, TTL changes, key deletion, and stream operations act on the current key state. Clipped display values are never written back as complete values.
 - Modifying SQL statements require confirmation. The SQL console executes one statement at a time.
 - Connections and SQL history are stored on the OpenChamber host, outside this repository:
 
@@ -192,9 +214,10 @@ Inspect keys, values, types, and TTLs in a read-only view.
 ```bash
 bun install --frozen-lockfile
 bun run build       # Build panel/main.js and service/main.js
-bun test            # Run service and driver tests
+bun test            # Run unit and driver regression tests
 docker compose up -d --wait
 ./demo/seed-valkey.sh
+DEMO_INTEGRATION=1 bun test test/demo-integration.test.js
 ```
 
 Source files live in `src/`. The build generates the loadable bundles in `panel/main.js` and `service/main.js`; both bundles are committed so OpenChamber can install directly from Git without building.

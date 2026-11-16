@@ -304,6 +304,59 @@ async function handle(req, res, url, body) {
     return timed(await db.readTable(poolFor(id), options));
   }
 
+  if (path === "/redis/key" && req.method === "GET") {
+    const key = q.get("key");
+    if (noQuery(key)) return fail(res, 400, "Redis key is required.");
+    const result = await redis.readKey(redisFor(q.get("connection") ?? undefined), {
+      key,
+      type: q.get("type") || undefined,
+      limit: int(q.get("limit"), 500),
+      valueLimit: int(q.get("valueLimit"), 262144),
+    });
+    return timed(result);
+  }
+
+  if (path === "/redis/operation" && req.method === "POST") {
+    const result = await redis.applyOperation(redisFor(body?.connection), body?.operation);
+    return timed(result);
+  }
+
+  if (path === "/mongo/document" && req.method === "POST") {
+    const b = body ?? {};
+    if (noQuery(b.schema) || noQuery(b.table) || noQuery(b.document)) {
+      return fail(res, 400, "schema, table, and a canonical Extended JSON document are required.");
+    }
+    const result = await mongo.insertDocument(mongoFor(b.connection), b);
+    return timed({ ok: true, ...result });
+  }
+
+  if (path === "/mongo/document" && req.method === "PATCH") {
+    const b = body ?? {};
+    if (noQuery(b.schema) || noQuery(b.table) || noQuery(b.id) || noQuery(b.original)) {
+      return fail(res, 400, "schema, table, id, and the original canonical document are required.");
+    }
+    const result = await mongo.updateDocument(mongoFor(b.connection), b);
+    return timed({ ok: true, ...result });
+  }
+
+  if (path === "/mongo/document" && req.method === "PUT") {
+    const b = body ?? {};
+    if (noQuery(b.schema) || noQuery(b.table) || noQuery(b.original) || noQuery(b.document)) {
+      return fail(res, 400, "schema, table, original, and the replacement canonical document are required.");
+    }
+    const result = await mongo.replaceDocument(mongoFor(b.connection), b);
+    return timed({ ok: true, ...result });
+  }
+
+  if (path === "/mongo/document" && req.method === "DELETE") {
+    const b = body ?? {};
+    if (noQuery(b.schema) || noQuery(b.table) || noQuery(b.id) || noQuery(b.original)) {
+      return fail(res, 400, "schema, table, id, and the original canonical document are required.");
+    }
+    const result = await mongo.deleteDocument(mongoFor(b.connection), b);
+    return timed({ ok: true, ...result });
+  }
+
   if (path === "/query" && req.method === "POST") {
     const { connection, sql: query, limit } = body ?? {};
     if (noQuery(query)) return fail(res, 400, "SQL query cannot be empty.");
@@ -400,7 +453,7 @@ const server = http.createServer(async (req, res) => {
   }
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
   let body = {};
-  if (req.method === "POST" || req.method === "DELETE") {
+  if (["POST", "PATCH", "PUT", "DELETE"].includes(req.method)) {
     try {
       body = await readBody(req);
     } catch (error) {
@@ -412,7 +465,8 @@ const server = http.createServer(async (req, res) => {
   } catch (error) {
     const message = error?.message ?? String(error);
     console.error(`${req.method} ${url.pathname}:`, message);
-    if (!res.headersSent) fail(res, 500, message);
+    const status = Number.isInteger(error?.status) && error.status >= 400 && error.status < 600 ? error.status : 500;
+    if (!res.headersSent) fail(res, status, message);
   }
 });
 

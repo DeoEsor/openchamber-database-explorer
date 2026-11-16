@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { applyBatch, assertSingleStatement, deleteRow, introspect, qid, readTable, serialize, updateCell } from "../src/service/db.js";
+import { applyBatch, assertSingleStatement, deleteRow, insertRow, introspect, qid, readTable, serialize, updateCell } from "../src/service/db.js";
 
 describe("SQL helpers", () => {
   it("quotes identifiers without changing the identifier boundary", () => {
@@ -39,7 +39,8 @@ describe("primary key metadata", () => {
         return [
           { schema: "public", table: "memberships", name: "tenant_id", type: "integer", nullable: false },
           { schema: "public", table: "memberships", name: "user_id", type: "integer", nullable: false },
-          { schema: "public", table: "users", name: "id", type: "integer", nullable: false },
+          { schema: "public", table: "users", name: "id", type: "integer", nullable: false, defaultValue: null, identity: "ALWAYS", generated: "" },
+          { schema: "public", table: "users", name: "external_id", type: "uuid", nullable: false, defaultValue: "gen_random_uuid()", identity: "", generated: "" },
         ];
       }
       if (query.includes("from pg_index")) {
@@ -59,6 +60,8 @@ describe("primary key metadata", () => {
     expect(memberships.columns.every((column) => !column.pk)).toBe(true);
     expect(users.primaryKey).toBe("id");
     expect(users.columns[0].pk).toBe(true);
+    expect(users.columns[0].identity).toBe("ALWAYS");
+    expect(users.columns[1].defaultValue).toBe("gen_random_uuid()");
   });
 
   it("returns table PK metadata only when exactly one PK column exists", async () => {
@@ -67,8 +70,8 @@ describe("primary key metadata", () => {
         const query = strings.join("?");
         if (query.includes("information_schema.columns")) {
           return [
-            { name: "tenant_id", type: "integer", nullable: "NO" },
-            { name: "user_id", type: "integer", nullable: "NO" },
+            { name: "tenant_id", type: "integer", nullable: "NO", defaultValue: "nextval('memberships_tenant_id_seq')", is_identity: "NO", is_generated: "NEVER" },
+            { name: "user_id", type: "uuid", nullable: "NO", defaultValue: "gen_random_uuid()", is_identity: "NO", is_generated: "NEVER" },
           ];
         }
         if (query.includes("from pg_index")) return pks;
@@ -80,6 +83,36 @@ describe("primary key metadata", () => {
 
     expect((await readWithPks([{ name: "tenant_id" }, { name: "user_id" }])).pk).toBeNull();
     expect((await readWithPks([{ name: "tenant_id" }])).pk).toBe("tenant_id");
+  });
+});
+
+describe("typed inserts", () => {
+  it("preserves null and empty strings while omitted keys use database defaults", async () => {
+    const calls = [];
+    const sql = { unsafe: async (query, params) => {
+      calls.push({ query, params });
+      return { count: 1 };
+    } };
+
+    await insertRow(sql, {
+      schema: "public",
+      table: "users",
+      values: { id: undefined, nullable_note: null, display_name: "", legacy_null: "\\null" },
+    });
+
+    expect(calls[0].query).toBe('insert into "public"."users" ("nullable_note", "display_name", "legacy_null") values ($1, $2, $3)');
+    expect(calls[0].params).toEqual([null, "", null]);
+  });
+
+  it("supports inserting a row using only database defaults", async () => {
+    let call;
+    const sql = { unsafe: async (query, params) => {
+      call = { query, params };
+      return { count: 1 };
+    } };
+    await insertRow(sql, { schema: "public", table: "users", values: {} });
+    expect(call.query).toBe('insert into "public"."users" default values');
+    expect(call.params).toEqual([]);
   });
 });
 

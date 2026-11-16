@@ -17,7 +17,15 @@ const tableRows = (list) =>
   list.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, serialize(v)])));
 
 export const open = (dsn) =>
-  postgres(dsn, { max: 2, idle_timeout: 20, connect_timeout: 5, prepare: false });
+  postgres(dsn, {
+    max: 2,
+    idle_timeout: 20,
+    connect_timeout: 5,
+    prepare: false,
+    // Preserve PostgreSQL date/timestamp text exactly; JS Date would silently
+    // convert timestamp-without-time-zone through the host's local timezone.
+    types: { rawTemporal: { to: 1184, from: [1082, 1114, 1184], parse: (value) => value } },
+  });
 
 export async function ping(sql) {
   await sql`select 1`;
@@ -50,10 +58,14 @@ export async function introspect(sql) {
     sql`
       select n.nspname as schema, c.relname as table, a.attname as name,
              format_type(a.atttypid, a.atttypmod) as type,
-             not a.attnotnull as nullable
+             not a.attnotnull as nullable,
+             pg_get_expr(d.adbin, d.adrelid) as "defaultValue",
+             nullif(a.attidentity, '') as identity,
+             nullif(a.attgenerated, '') as generated
       from pg_attribute a
       join pg_class c on c.oid = a.attrelid
       join pg_namespace n on n.oid = c.relnamespace
+      left join pg_attrdef d on d.adrelid = c.oid and d.adnum = a.attnum
       where a.attnum > 0 and not a.attisdropped
         and c.relkind in ('r', 'p', 'v', 'm')
         and n.nspname not like 'pg\\_%'
@@ -99,7 +111,15 @@ export async function introspect(sql) {
     row.approxRows = t.approx_rows >= 0 ? Number(t.approx_rows) : null;
   }
   for (const c of columns) {
-    tableOf(c.schema, c.table).columns.push({ name: c.name, type: c.type, nullable: c.nullable, pk: false });
+    tableOf(c.schema, c.table).columns.push({
+      name: c.name,
+      type: c.type,
+      nullable: c.nullable,
+      defaultValue: c.defaultValue ?? null,
+      identity: c.identity ?? null,
+      generated: c.generated ?? null,
+      pk: false,
+    });
   }
   const primaryKeys = new Map();
   for (const p of pks) {
@@ -161,7 +181,8 @@ export async function execute(sql, query) {
 
 async function tableMeta(sql, schema, table) {
   const columns = await sql`
-    select column_name as name, data_type as type, is_nullable as nullable
+    select column_name as name, data_type as type, is_nullable as nullable,
+           column_default as "defaultValue", is_identity, identity_generation, is_generated
     from information_schema.columns
     where table_schema = ${schema} and table_name = ${table}
     order by ordinal_position
@@ -177,7 +198,14 @@ async function tableMeta(sql, schema, table) {
     order by a.attnum
   `;
   return {
-    columns: columns.map((c) => ({ name: c.name, type: c.type, nullable: c.nullable === "YES" })),
+    columns: columns.map((c) => ({
+      name: c.name,
+      type: c.type,
+      nullable: c.nullable === "YES",
+      defaultValue: c.defaultValue ?? null,
+      identity: c.is_identity === "YES" ? (c.identity_generation || "BY DEFAULT") : null,
+      generated: c.is_generated && c.is_generated !== "NEVER" ? c.is_generated : null,
+    })),
     pk: pk.length === 1 ? pk[0].name : null,
   };
 }
@@ -242,16 +270,14 @@ export async function updateCell(sql, { schema, table, pkCol, pkVal, col, val, v
 }
 
 export async function insertRow(sql, { schema, table, values }) {
-  const entries = Object.entries(values ?? {}).filter(([, v]) => v !== undefined && v !== null && v !== "");
-  if (!entries.length) throw new Error("No values to insert.");
-  const cols = entries.map(([c]) => qid(c)).join(", ");
-  const placeholders = entries.map((_, i) => `$${i + 1}`).join(", ");
-  const params = entries.map(([, v]) => (v === "\\null" ? null : v));
+  // Omitted keys use database defaults; explicit null and empty strings are values.
+  const entries = Object.entries(values ?? {}).filter(([, v]) => v !== undefined);
   const full = qid(schema) + "." + qid(table);
-  const result = await sql.unsafe(
-    `insert into ${full} (${cols}) values (${placeholders})`,
-    params,
-  );
+  const query = entries.length
+    ? `insert into ${full} (${entries.map(([c]) => qid(c)).join(", ")}) values (${entries.map((_, i) => `$${i + 1}`).join(", ")})`
+    : `insert into ${full} default values`;
+  const params = entries.map(([, v]) => (v === "\\null" ? null : v));
+  const result = await sql.unsafe(query, params);
   return { count: typeof result.count === "number" ? result.count : 0 };
 }
 

@@ -6,6 +6,11 @@ CREATE TABLE customers (
   status text NOT NULL DEFAULT 'active',
   country text NOT NULL,
   monthly_revenue numeric(10, 2) NOT NULL DEFAULT 0,
+  external_id uuid NOT NULL DEFAULT gen_random_uuid(),
+  joined_on date NOT NULL DEFAULT CURRENT_DATE,
+  local_checkpoint timestamp NOT NULL DEFAULT '2026-11-16 09:30:00',
+  opens_at time NOT NULL DEFAULT '09:00:00',
+  notes text,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 

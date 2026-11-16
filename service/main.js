@@ -34505,11 +34505,11 @@ var require_HSCAN_NOVALUES = __commonJS(function(exports) {
 var require_HSET = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.default = {
-    parseCommand(parser, ...[key, value, fieldValue]) {
+    parseCommand(parser, ...[key, value, fieldValue2]) {
       parser.push("HSET");
       parser.pushKey(key);
       if (typeof value === "string" || typeof value === "number" || value instanceof Buffer) {
-        parser.push(convertValue(value), convertValue(fieldValue));
+        parser.push(convertValue(value), convertValue(fieldValue2));
       } else if (value instanceof Map) {
         pushMap(parser, value);
       } else if (Array.isArray(value)) {
@@ -34670,10 +34670,10 @@ var require_HVALS = __commonJS(function(exports) {
 var require_reply_utils = __commonJS(function(exports) {
   Object.defineProperty(exports, "__esModule", { value: true });
   exports.getMapValue = exports.mapLikeToFlatArray = exports.mapLikeToObject = exports.mapLikeValues = exports.mapLikeEntries = exports.keyToString = exports.isPlainObject = undefined;
-  function isPlainObject(value) {
+  function isPlainObject2(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value) && !(value instanceof Map) && !ArrayBuffer.isView(value) && Object.prototype.toString.call(value) === "[object Object]";
   }
-  exports.isPlainObject = isPlainObject;
+  exports.isPlainObject = isPlainObject2;
   function keyToString(key) {
     if (key === null || key === undefined)
       return "";
@@ -34685,7 +34685,7 @@ var require_reply_utils = __commonJS(function(exports) {
       return Array.from(value.entries(), ([key, entryValue]) => [keyToString(key), entryValue]);
     }
     if (Array.isArray(value)) {
-      if (value.length === 1 && (Array.isArray(value[0]) || value[0] instanceof Map || isPlainObject(value[0]))) {
+      if (value.length === 1 && (Array.isArray(value[0]) || value[0] instanceof Map || isPlainObject2(value[0]))) {
         return mapLikeEntries(value[0]);
       }
       if (value.every((item) => Array.isArray(item) && item.length >= 2)) {
@@ -34697,7 +34697,7 @@ var require_reply_utils = __commonJS(function(exports) {
       }
       return entries;
     }
-    if (isPlainObject(value)) {
+    if (isPlainObject2(value)) {
       return Object.entries(value);
     }
     return [];
@@ -34708,7 +34708,7 @@ var require_reply_utils = __commonJS(function(exports) {
       return value;
     if (value instanceof Map)
       return [...value.values()];
-    if (isPlainObject(value))
+    if (isPlainObject2(value))
       return Object.values(value);
     return [];
   }
@@ -64359,7 +64359,13 @@ var serialize = (value) => {
   return String(value);
 };
 var tableRows = (list) => list.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, serialize(v)])));
-var open = (dsn) => src_default(dsn, { max: 2, idle_timeout: 20, connect_timeout: 5, prepare: false });
+var open = (dsn) => src_default(dsn, {
+  max: 2,
+  idle_timeout: 20,
+  connect_timeout: 5,
+  prepare: false,
+  types: { rawTemporal: { to: 1184, from: [1082, 1114, 1184], parse: (value) => value } }
+});
 async function ping(sql) {
   await sql`select 1`;
 }
@@ -64388,10 +64394,14 @@ async function introspect(sql) {
     sql`
       select n.nspname as schema, c.relname as table, a.attname as name,
              format_type(a.atttypid, a.atttypmod) as type,
-             not a.attnotnull as nullable
+             not a.attnotnull as nullable,
+             pg_get_expr(d.adbin, d.adrelid) as "defaultValue",
+             nullif(a.attidentity, '') as identity,
+             nullif(a.attgenerated, '') as generated
       from pg_attribute a
       join pg_class c on c.oid = a.attrelid
       join pg_namespace n on n.oid = c.relnamespace
+      left join pg_attrdef d on d.adrelid = c.oid and d.adnum = a.attnum
       where a.attnum > 0 and not a.attisdropped
         and c.relkind in ('r', 'p', 'v', 'm')
         and n.nspname not like 'pg\\_%'
@@ -64435,7 +64445,15 @@ async function introspect(sql) {
     row.approxRows = t.approx_rows >= 0 ? Number(t.approx_rows) : null;
   }
   for (const c of columns) {
-    tableOf(c.schema, c.table).columns.push({ name: c.name, type: c.type, nullable: c.nullable, pk: false });
+    tableOf(c.schema, c.table).columns.push({
+      name: c.name,
+      type: c.type,
+      nullable: c.nullable,
+      defaultValue: c.defaultValue ?? null,
+      identity: c.identity ?? null,
+      generated: c.generated ?? null,
+      pk: false
+    });
   }
   const primaryKeys = new Map;
   for (const p of pks) {
@@ -64492,7 +64510,8 @@ async function execute(sql, query) {
 }
 async function tableMeta(sql, schema, table) {
   const columns = await sql`
-    select column_name as name, data_type as type, is_nullable as nullable
+    select column_name as name, data_type as type, is_nullable as nullable,
+           column_default as "defaultValue", is_identity, identity_generation, is_generated
     from information_schema.columns
     where table_schema = ${schema} and table_name = ${table}
     order by ordinal_position
@@ -64509,7 +64528,14 @@ async function tableMeta(sql, schema, table) {
     order by a.attnum
   `;
   return {
-    columns: columns.map((c) => ({ name: c.name, type: c.type, nullable: c.nullable === "YES" })),
+    columns: columns.map((c) => ({
+      name: c.name,
+      type: c.type,
+      nullable: c.nullable === "YES",
+      defaultValue: c.defaultValue ?? null,
+      identity: c.is_identity === "YES" ? c.identity_generation || "BY DEFAULT" : null,
+      generated: c.is_generated && c.is_generated !== "NEVER" ? c.is_generated : null
+    })),
     pk: pk.length === 1 ? pk[0].name : null
   };
 }
@@ -64570,14 +64596,11 @@ async function readTable(sql, { schema, table, offset = 0, limit = 100, order, d
   };
 }
 async function insertRow(sql, { schema, table, values: values2 }) {
-  const entries = Object.entries(values2 ?? {}).filter(([, v]) => v !== undefined && v !== null && v !== "");
-  if (!entries.length)
-    throw new Error("No values to insert.");
-  const cols = entries.map(([c]) => qid(c)).join(", ");
-  const placeholders = entries.map((_, i) => `$${i + 1}`).join(", ");
-  const params = entries.map(([, v]) => v === "\\null" ? null : v);
+  const entries = Object.entries(values2 ?? {}).filter(([, v]) => v !== undefined);
   const full = qid(schema) + "." + qid(table);
-  const result = await sql.unsafe(`insert into ${full} (${cols}) values (${placeholders})`, params);
+  const query = entries.length ? `insert into ${full} (${entries.map(([c]) => qid(c)).join(", ")}) values (${entries.map((_, i) => `$${i + 1}`).join(", ")})` : `insert into ${full} default values`;
+  const params = entries.map(([, v]) => v === "\\null" ? null : v);
+  const result = await sql.unsafe(query, params);
   return { count: typeof result.count === "number" ? result.count : 0 };
 }
 function assertBatchOps(ops) {
@@ -64634,10 +64657,55 @@ async function applyBatch(sql, { schema, table, pk, ops }) {
 // src/service/mongo.js
 var import_mongodb = __toESM(require_lib3(), 1);
 var { EJSON } = import_mongodb.BSON;
+var CANONICAL_EJSON = { relaxed: false };
+var FORBIDDEN_FIELDS = new Set(["__proto__", "prototype", "constructor"]);
+var EJSON_FIELDS = new Set([
+  "$oid",
+  "$date",
+  "$numberInt",
+  "$numberLong",
+  "$numberDouble",
+  "$numberDecimal",
+  "$binary",
+  "$uuid",
+  "$timestamp",
+  "$regularExpression",
+  "$regex",
+  "$options",
+  "$minKey",
+  "$maxKey",
+  "$undefined",
+  "$symbol",
+  "$code",
+  "$scope",
+  "$dbPointer",
+  "$ref",
+  "$id",
+  "$db"
+]);
+function mongoError(message, code, status, cause) {
+  const error = new Error(message);
+  error.code = code;
+  error.status = status;
+  if (cause !== undefined)
+    error.cause = cause;
+  return error;
+}
+var invalid = (message, cause) => mongoError(message, "MONGO_INVALID_REQUEST", 400, cause);
+var conflict = (operation, count) => mongoError(`MongoDB ${operation} conflict: expected exactly one matching document (matched: ${count}). Reload and retry.`, "MONGO_CONFLICT", 409);
+var hasOwn = (value, field) => Object.prototype.hasOwnProperty.call(value, field);
+var isPlainObject = (value) => {
+  if (value === null || typeof value !== "object")
+    return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+};
 var open2 = (dsn) => new import_mongodb.MongoClient(dsn, {
   maxPoolSize: 3,
   connectTimeoutMS: 5000,
-  serverSelectionTimeoutMS: 5000
+  serverSelectionTimeoutMS: 5000,
+  promoteLongs: false,
+  promoteValues: false
 });
 async function ping2(client) {
   await client.connect();
@@ -64679,6 +64747,75 @@ var safeField = (name) => {
     throw new Error("Invalid MongoDB field name.");
   return field;
 };
+function assertEditableField(name, topLevel = false) {
+  if (typeof name !== "string" || !name || name.startsWith("$") || name.includes("\x00") || FORBIDDEN_FIELDS.has(name) || topLevel && name.includes(".")) {
+    throw invalid("Invalid or unsafe MongoDB field name.");
+  }
+  return name;
+}
+function validateJsonFields(value) {
+  if (Array.isArray(value)) {
+    for (const item of value)
+      validateJsonFields(item);
+    return;
+  }
+  if (!isPlainObject(value))
+    return;
+  for (const [name, nested] of Object.entries(value)) {
+    if (!name || name.includes("\x00") || FORBIDDEN_FIELDS.has(name)) {
+      throw invalid("Invalid or unsafe MongoDB field name.");
+    }
+    if (name.startsWith("$") && !EJSON_FIELDS.has(name)) {
+      throw invalid(`Unknown MongoDB Extended JSON operator: ${name}.`);
+    }
+    validateJsonFields(nested);
+  }
+}
+function validateParsedFields(value) {
+  if (Array.isArray(value)) {
+    for (const item of value)
+      validateParsedFields(item);
+    return;
+  }
+  if (!isPlainObject(value))
+    return;
+  for (const [name, nested] of Object.entries(value)) {
+    assertEditableField(name);
+    validateParsedFields(nested);
+  }
+}
+function serialize2(value) {
+  if (value === undefined)
+    throw invalid("Undefined is not an Extended JSON value; omit the field instead.");
+  return EJSON.stringify(value, CANONICAL_EJSON);
+}
+function parse2(text) {
+  if (typeof text !== "string")
+    throw invalid("MongoDB Extended JSON must be a string.");
+  let json;
+  try {
+    json = JSON.parse(text);
+  } catch (cause) {
+    throw invalid("Invalid MongoDB Extended JSON.", cause);
+  }
+  validateJsonFields(json);
+  let value;
+  try {
+    value = EJSON.parse(text, CANONICAL_EJSON);
+  } catch (cause) {
+    throw invalid("Invalid MongoDB Extended JSON.", cause);
+  }
+  validateParsedFields(value);
+  return value;
+}
+function parseDocument(text, label = "MongoDB document") {
+  const document = parse2(text);
+  if (!isPlainObject(document))
+    throw invalid(`${label} must be an Extended JSON object.`);
+  for (const name of Object.keys(document))
+    assertEditableField(name, true);
+  return document;
+}
 var scalar = (value, field) => {
   const text = String(value ?? "");
   if (field === "_id" && import_mongodb.ObjectId.isValid(text))
@@ -64734,11 +64871,13 @@ function valueType(value) {
     return "array";
   if (value === null)
     return "null";
+  if (typeof value?._bsontype === "string")
+    return value._bsontype.toLowerCase();
   if (typeof value === "object")
     return "json";
   return typeof value;
 }
-function serialize2(value) {
+function display(value) {
   if (value === null || value === undefined)
     return null;
   if (value instanceof import_mongodb.ObjectId)
@@ -64775,25 +64914,259 @@ async function readCollection(client, { schema, table, offset = 0, limit = 100, 
     columns: names,
     columnMeta,
     pk: "_id",
-    rows: documents.map((document) => names.map((name) => serialize2(document[name]))),
+    rows: documents.map((document) => names.map((name) => display(document[name]))),
+    documents: documents.map((document) => serialize2(document)),
+    present: documents.map((document) => names.map((name) => hasOwn(document, name))),
     rowCount: documents.length,
-    total,
+    total: Number(total),
     offset,
     limit,
     order: orderField,
     desc: !!desc,
-    readOnly: true
+    readOnly: false
   };
+}
+function collectionFor(client, schema, table) {
+  const database = String(schema ?? "");
+  const collection = String(table ?? "");
+  if (!database || !collection || database.includes("\x00") || collection.includes("\x00")) {
+    throw invalid("Both a valid MongoDB schema and table are required.");
+  }
+  return client.db(database).collection(collection);
+}
+function originalId(original) {
+  if (!hasOwn(original, "_id"))
+    throw invalid("The original MongoDB document must contain _id.");
+  return original._id;
+}
+function matchingId(original, id) {
+  const parsedId = parse2(id);
+  if (serialize2(parsedId) !== serialize2(originalId(original))) {
+    throw invalid("The supplied id does not match the original document _id.");
+  }
+  return parsedId;
+}
+function sameId(left, right) {
+  return serialize2(left) === serialize2(right);
+}
+function fieldValue(field) {
+  return { $getField: { field: { $literal: field }, input: "$$ROOT" } };
+}
+function comparisonDocument(value) {
+  if (isPlainObject(value))
+    return value;
+  if (value?._bsontype !== "DBRef")
+    return null;
+  return Object.assign({ $ref: value.collection, $id: value.oid }, value.db != null ? { $db: value.db } : null, value.fields);
+}
+function exactValueExpression(value, original) {
+  let nextVariable = 0;
+  const compare = (actual, expected) => {
+    if (expected?._bsontype === "Code" && expected.scope != null) {
+      throw invalid("MongoDB Code values with scope cannot be used in guarded edits.");
+    }
+    const variable = `guard${nextVariable++}`;
+    const reference = `$$${variable}`;
+    const bind = (expression) => ({ $let: { vars: { [variable]: actual }, in: expression } });
+    const document = comparisonDocument(expected);
+    if (document)
+      expected = document;
+    const sameType = { $eq: [{ $type: reference }, { $type: { $literal: expected } }] };
+    if (Array.isArray(expected)) {
+      return bind({
+        $cond: {
+          if: sameType,
+          then: {
+            $and: [
+              { $eq: [{ $size: reference }, expected.length] },
+              ...expected.map((item, index) => compare({ $arrayElemAt: [reference, index] }, item))
+            ]
+          },
+          else: false
+        }
+      });
+    }
+    if (document) {
+      return bind({
+        $cond: {
+          if: sameType,
+          then: {
+            $and: [
+              {
+                $eq: [
+                  { $map: { input: { $objectToArray: reference }, as: "entry", in: "$$entry.k" } },
+                  { $literal: Object.keys(expected) }
+                ]
+              },
+              ...Object.entries(expected).map(([field, item]) => compare({ $getField: { field: { $literal: field }, input: reference } }, item))
+            ]
+          },
+          else: false
+        }
+      });
+    }
+    return bind({ $and: [sameType, { $eq: [reference, { $literal: expected }] }] });
+  };
+  return compare(value, original);
+}
+function originalFieldsFilter(original, id, fields) {
+  const comparisons = [];
+  for (const field of fields) {
+    const value = fieldValue(field);
+    comparisons.push(hasOwn(original, field) ? exactValueExpression(value, original[field]) : { $eq: [{ $type: value }, "missing"] });
+  }
+  return { _id: id, $expr: { $and: comparisons } };
+}
+function exactOriginalFilter(original) {
+  return { _id: originalId(original), $expr: exactValueExpression("$$ROOT", original) };
+}
+function assertAcknowledged(result) {
+  if (result?.acknowledged !== true) {
+    throw mongoError("MongoDB write was not acknowledged.", "MONGO_WRITE_UNACKNOWLEDGED", 500);
+  }
+}
+function numericResultCount(result, key) {
+  const count = Number(result?.[key] ?? 0);
+  return Number.isSafeInteger(count) ? count : 0;
+}
+function assertMatched(result, operation) {
+  assertAcknowledged(result);
+  const matchedCount = numericResultCount(result, "matchedCount");
+  if (matchedCount !== 1)
+    throw conflict(operation, matchedCount);
+}
+async function writeWithDuplicateKeyTranslation(operation, write) {
+  try {
+    return await write();
+  } catch (error) {
+    if (error instanceof import_mongodb.MongoServerError && error.code === 11000) {
+      throw mongoError(`MongoDB ${operation} failed: a document with the same unique key already exists.`, "MONGO_DUPLICATE_KEY", 409, error);
+    }
+    throw error;
+  }
+}
+async function insertDocument(client, { schema, table, document } = {}) {
+  const value = parseDocument(document);
+  const result = await writeWithDuplicateKeyTranslation("insert", () => collectionFor(client, schema, table).insertOne(value));
+  assertAcknowledged(result);
+  const insertedId = result?.insertedId !== undefined ? result.insertedId : value._id;
+  return {
+    count: 1,
+    ...insertedId === undefined ? {} : { insertedId: serialize2(insertedId) }
+  };
+}
+async function updateDocument(client, { schema, table, id, original, set = {}, unset = [] } = {}) {
+  const originalDocument = parseDocument(original, "The original MongoDB document");
+  const parsedId = matchingId(originalDocument, id);
+  if (!isPlainObject(set))
+    throw invalid("MongoDB update set must be an object of canonical Extended JSON values.");
+  if (!Array.isArray(unset))
+    throw invalid("MongoDB update unset must be an array of top-level field names.");
+  const setEntries = Object.entries(set);
+  if (!setEntries.length && !unset.length)
+    throw invalid("MongoDB update requires at least one set or unset field.");
+  const setFields = new Set(setEntries.map(([name]) => name));
+  for (const name of unset) {
+    assertEditableField(name, true);
+    if (setFields.has(name))
+      throw invalid(`MongoDB field ${name} cannot be both set and unset.`);
+  }
+  const fields = new Set;
+  const setValues = {};
+  for (const [name, text] of setEntries) {
+    assertEditableField(name, true);
+    if (name === "_id")
+      throw invalid("MongoDB _id is immutable.");
+    fields.add(name);
+    setValues[name] = parse2(text);
+  }
+  const unsetValues = {};
+  for (const name of unset) {
+    if (name === "_id")
+      throw invalid("MongoDB _id is immutable.");
+    fields.add(name);
+    unsetValues[name] = "";
+  }
+  const update = {};
+  if (setEntries.length)
+    update.$set = setValues;
+  if (unset.length)
+    update.$unset = unsetValues;
+  const filter = originalFieldsFilter(originalDocument, parsedId, fields);
+  const result = await writeWithDuplicateKeyTranslation("update", () => collectionFor(client, schema, table).updateOne(filter, update));
+  assertMatched(result, "update");
+  const matchedCount = numericResultCount(result, "matchedCount");
+  const modifiedCount = numericResultCount(result, "modifiedCount");
+  return { count: matchedCount, matchedCount, modifiedCount };
+}
+async function replaceDocument(client, { schema, table, original, document } = {}) {
+  const originalDocument = parseDocument(original, "The original MongoDB document");
+  const replacement = parseDocument(document, "The replacement MongoDB document");
+  const id = originalId(originalDocument);
+  if (!hasOwn(replacement, "_id") || !sameId(id, replacement._id)) {
+    throw invalid("The replacement MongoDB document must preserve the original _id.");
+  }
+  const result = await writeWithDuplicateKeyTranslation("replace", () => collectionFor(client, schema, table).replaceOne(exactOriginalFilter(originalDocument), replacement));
+  assertMatched(result, "replace");
+  const matchedCount = numericResultCount(result, "matchedCount");
+  const modifiedCount = numericResultCount(result, "modifiedCount");
+  return { count: matchedCount, matchedCount, modifiedCount };
+}
+async function deleteDocument(client, { schema, table, id, original } = {}) {
+  const originalDocument = parseDocument(original, "The original MongoDB document");
+  matchingId(originalDocument, id);
+  const result = await collectionFor(client, schema, table).deleteOne(exactOriginalFilter(originalDocument));
+  assertAcknowledged(result);
+  const deletedCount = numericResultCount(result, "deletedCount");
+  if (deletedCount !== 1)
+    throw conflict("delete", deletedCount);
+  return { count: deletedCount, deletedCount };
 }
 
 // src/service/redis.js
 var import_redis = __toESM(require_dist3(), 1);
 var MAX_SCAN_KEYS = 20000;
 var VALUE_LIMIT = 1e5;
-var open3 = (dsn) => import_redis.createClient({
-  url: dsn,
-  socket: { connectTimeout: 5000, reconnectStrategy: false }
-});
+var MAX_READ_ENTRIES = 500;
+var MAX_NAME_BYTES = 64 * 1024;
+var MAX_VALUE_BYTES = 1e6;
+var MAX_CREATE_ENTRIES = 1000;
+var MAX_CREATE_BYTES = 4000000;
+var MAX_LIST_STRUCTURE_ENTRIES = 1e4;
+var MAX_LIST_INDEX = 4294967295;
+var MAX_TTL_SECONDS = 2147483647;
+var MAX_STREAM_ID_COMPONENT = 18446744073709551615n;
+var REDIS_TYPES = Object.freeze(["string", "hash", "list", "set", "zset", "stream"]);
+var SUPPORTED_TYPES = new Set(REDIS_TYPES);
+var ERROR_STATUS_BY_CODE = new Map([
+  ["INVALID_INPUT", 400],
+  ["NO_OP", 400],
+  ["INDEX_OUT_OF_RANGE", 400],
+  ["TOO_LARGE", 400],
+  ["UNSUPPORTED_TYPE", 400],
+  ["KEY_NOT_FOUND", 404],
+  ["NOT_FOUND", 404],
+  ["CONFLICT", 409],
+  ["KEY_EXISTS", 409],
+  ["TYPE_MISMATCH", 409]
+]);
+
+class RedisOperationError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = "RedisOperationError";
+    this.code = code;
+    this.status = ERROR_STATUS_BY_CODE.get(code) ?? 500;
+  }
+}
+var open3 = (dsn) => {
+  const client = import_redis.createClient({
+    url: dsn,
+    socket: { connectTimeout: 5000, reconnectStrategy: false }
+  });
+  client.on("error", () => {});
+  return client;
+};
 async function ensureOpen(client) {
   if (!client.isOpen)
     await client.connect();
@@ -64928,11 +65301,755 @@ async function readKeys(client, { offset = 0, limit = 100, desc = false, filter 
     limit,
     order: "key",
     desc: !!desc,
-    readOnly: true,
+    readOnly: false,
     filterColumns: ["key", "type", "ttl"],
     sortColumns: ["key"],
     truncated: scanned.length >= MAX_SCAN_KEYS
   };
+}
+var fail = (code, message) => {
+  throw new RedisOperationError(code, message);
+};
+var invalid2 = (message) => fail("INVALID_INPUT", message);
+var byteLength = (value) => Buffer.byteLength(value, "utf8");
+function text(value, label, { empty = true, max = MAX_VALUE_BYTES } = {}) {
+  if (typeof value !== "string")
+    invalid2(`${label} must be a string.`);
+  if (!empty && !value.length)
+    invalid2(`${label} is required.`);
+  if (byteLength(value) > max)
+    invalid2(`${label} exceeds the ${max}-byte limit.`);
+  return value;
+}
+var keyText = (key) => text(key, "Redis key", { empty: false, max: MAX_NAME_BYTES });
+var nameText = (value, label = "Member") => text(value, label, { max: MAX_NAME_BYTES });
+var valueText = (value, label = "Value") => text(value, label);
+function redisType(value) {
+  if (typeof value !== "string" || !SUPPORTED_TYPES.has(value)) {
+    invalid2(`Redis type must be one of: ${REDIS_TYPES.join(", ")}.`);
+  }
+  return value;
+}
+function boundedInteger(value, label, { min = 0, max = MAX_LIST_INDEX } = {}) {
+  if (!Number.isSafeInteger(value) || value < min || value > max) {
+    invalid2(`${label} must be an integer between ${min} and ${max}.`);
+  }
+  return value;
+}
+function readOptions(options) {
+  const limit = options?.limit ?? 100;
+  const valueLimit = options?.valueLimit ?? VALUE_LIMIT;
+  boundedInteger(limit, "Read limit", { min: 1, max: MAX_READ_ENTRIES });
+  boundedInteger(valueLimit, "Value byte limit", { min: 1, max: MAX_VALUE_BYTES });
+  return { limit, valueLimit };
+}
+function ttlValue(value, optional = true) {
+  if (value === null || optional && value === undefined)
+    return null;
+  if (!Number.isSafeInteger(value) || value < 1 || value > MAX_TTL_SECONDS) {
+    invalid2(`TTL must be null or an integer between 1 and ${MAX_TTL_SECONDS} seconds.`);
+  }
+  return value;
+}
+function scoreText(value, label = "Score") {
+  if (typeof value === "number") {
+    if (Number.isNaN(value))
+      invalid2(`${label} cannot be NaN.`);
+    if (value === Infinity)
+      return "+inf";
+    if (value === -Infinity)
+      return "-inf";
+    return String(value);
+  }
+  if (typeof value !== "string" || !value.trim())
+    invalid2(`${label} must be a number or numeric string.`);
+  const score = value.trim();
+  if (score.length > 64)
+    invalid2(`${label} is too long.`);
+  const lower = score.toLowerCase();
+  if (["inf", "+inf", "infinity", "+infinity"].includes(lower))
+    return "+inf";
+  if (["-inf", "-infinity"].includes(lower))
+    return "-inf";
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(score) || !Number.isFinite(Number(score))) {
+    invalid2(`${label} must be a finite number, +inf, or -inf.`);
+  }
+  return score;
+}
+var numericScore = (score) => score === "+inf" ? Infinity : score === "-inf" ? -Infinity : Number(score);
+var sameScore = (left, right) => numericScore(left) === numericScore(right);
+function streamId(value, { allowAuto = true, allowZero = false } = {}) {
+  if (value === "*" && allowAuto)
+    return { text: "*", auto: true };
+  if (typeof value !== "string" || !/^(\d+)-(\d+)$/.test(value)) {
+    invalid2(`Stream ID must be ${allowAuto ? '"*" or ' : ""}a milliseconds-sequence ID such as 1710000000000-0.`);
+  }
+  if (value.length > 64)
+    invalid2("Stream ID is too long.");
+  const [milliseconds, sequence] = value.split("-").map((part) => BigInt(part));
+  if (milliseconds > MAX_STREAM_ID_COMPONENT || sequence > MAX_STREAM_ID_COMPONENT) {
+    invalid2("Stream ID components exceed the unsigned 64-bit range.");
+  }
+  if (!allowZero && milliseconds === 0n && sequence === 0n)
+    invalid2("Stream ID 0-0 is not valid for XADD.");
+  return { text: value, auto: false, milliseconds, sequence };
+}
+function entriesArray(value, label = "Entries") {
+  if (!Array.isArray(value) || !value.length || value.length > MAX_CREATE_ENTRIES) {
+    invalid2(`${label} must contain between 1 and ${MAX_CREATE_ENTRIES} items.`);
+  }
+  return value;
+}
+function objectValue(value, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    invalid2(`${label} must be an object.`);
+  return value;
+}
+function payloadBudget() {
+  let used = 0;
+  return (value) => {
+    used += byteLength(value);
+    if (used > MAX_CREATE_BYTES)
+      invalid2(`Mutation payload exceeds the ${MAX_CREATE_BYTES}-byte limit.`);
+  };
+}
+function streamFields(value, budget = () => {}) {
+  const fields = entriesArray(value, "Stream fields");
+  return fields.map((item) => {
+    objectValue(item, "Stream field");
+    const field = nameText(item.field, "Stream field");
+    const fieldValue2 = valueText(item.value, "Stream field value");
+    budget(field);
+    budget(fieldValue2);
+    return [field, fieldValue2];
+  });
+}
+function streamEntries(value, budget) {
+  let fieldCount = 0;
+  const entries = entriesArray(value, "Stream entries").map((item) => {
+    objectValue(item, "Stream entry");
+    const id = streamId(item.id ?? "*");
+    budget(id.text);
+    const fields = streamFields(item.fields, budget);
+    fieldCount += fields.length;
+    if (fieldCount > MAX_CREATE_ENTRIES)
+      invalid2(`Stream creation is limited to ${MAX_CREATE_ENTRIES} total fields.`);
+    return { id, fields };
+  });
+  const automatic = entries.filter((entry) => entry.id.auto).length;
+  if (automatic && automatic !== entries.length) {
+    invalid2("Stream creation cannot mix automatic and explicit IDs.");
+  }
+  for (let index = 1;index < entries.length; index += 1) {
+    const previous = entries[index - 1].id;
+    const current = entries[index].id;
+    if (!current.auto && (current.milliseconds < previous.milliseconds || current.milliseconds === previous.milliseconds && current.sequence <= previous.sequence)) {
+      invalid2("Explicit stream IDs must be strictly increasing.");
+    }
+  }
+  return entries;
+}
+function clipText(value, limit) {
+  const source = String(value);
+  const totalLength = byteLength(source);
+  if (totalLength <= limit) {
+    return { text: source, truncated: false, totalLength, returnedLength: totalLength };
+  }
+  let end = 0;
+  let returnedLength = 0;
+  for (const character of source) {
+    const size2 = byteLength(character);
+    if (returnedLength + size2 > limit)
+      break;
+    returnedLength += size2;
+    end += character.length;
+  }
+  return { text: source.slice(0, end), truncated: true, totalLength, returnedLength };
+}
+function fieldValueEntry(field, value, limit) {
+  const clippedField = clipText(field, limit);
+  const clippedValue = clipText(value, limit);
+  return {
+    field: clippedField.text,
+    value: clippedValue.text,
+    truncated: clippedField.truncated || clippedValue.truncated,
+    ...clippedField.truncated ? {
+      fieldLength: clippedField.totalLength,
+      fieldReturnedLength: clippedField.returnedLength
+    } : {},
+    ...clippedValue.truncated ? {
+      valueLength: clippedValue.totalLength,
+      valueReturnedLength: clippedValue.returnedLength
+    } : {}
+  };
+}
+function valueEntry(value, limit, index) {
+  const clippedValue = clipText(value, limit);
+  return {
+    ...index === undefined ? {} : { index },
+    value: clippedValue.text,
+    truncated: clippedValue.truncated,
+    ...clippedValue.truncated ? {
+      valueLength: clippedValue.totalLength,
+      valueReturnedLength: clippedValue.returnedLength
+    } : {}
+  };
+}
+function memberEntry(member, limit, score) {
+  const clippedMember = clipText(member, limit);
+  return {
+    member: clippedMember.text,
+    ...score === undefined ? {} : { score },
+    truncated: clippedMember.truncated,
+    ...clippedMember.truncated ? {
+      memberLength: clippedMember.totalLength,
+      memberReturnedLength: clippedMember.returnedLength
+    } : {}
+  };
+}
+function collectionRead(type, entries, total, entriesTruncated) {
+  const valuesTruncated = entries.filter((entry) => entry.truncated).length;
+  const truncated = entriesTruncated || valuesTruncated > 0;
+  return {
+    entries,
+    total,
+    returned: entries.length,
+    entriesTruncated,
+    valuesTruncated,
+    truncated,
+    writable: type !== "stream" && !truncated
+  };
+}
+var STRING_PREFIX_SCRIPT = `-- redis.string.prefix
+local limit = tonumber(ARGV[1])
+local value = redis.call('GETRANGE', KEYS[1], 0, limit + 2)
+local index = 1
+local last = 0
+while index <= limit and index <= #value do
+  local first = string.byte(value, index)
+  local size = 1
+  if first >= 240 then size = 4 elseif first >= 224 then size = 3 elseif first >= 192 then size = 2 end
+  if index + size - 1 > limit or index + size - 1 > #value then break end
+  last = index + size - 1
+  index = index + size
+end
+return {string.sub(value, 1, last), last}`;
+async function readString(client, key, valueLimit) {
+  const totalBytes = await client.strLen(key);
+  const truncated = totalBytes > valueLimit;
+  let value = "";
+  let returnedBytes = 0;
+  if (!truncated && totalBytes) {
+    value = await client.getRange(key, 0, totalBytes - 1);
+    returnedBytes = totalBytes;
+  } else if (truncated) {
+    const reply = await client.eval(STRING_PREFIX_SCRIPT, { keys: [key], arguments: [String(valueLimit)] });
+    value = reply[0];
+    returnedBytes = Number(reply[1]);
+  }
+  return {
+    value: value ?? "",
+    total: 1,
+    returned: 1,
+    entriesTruncated: false,
+    valuesTruncated: truncated ? 1 : 0,
+    valueLength: totalBytes,
+    valueReturnedLength: returnedBytes,
+    truncated,
+    writable: !truncated
+  };
+}
+async function readHash(client, key, limit, valueLimit) {
+  const total = await client.hLen(key);
+  const entries = [];
+  let stoppedEarly = false;
+  if (total) {
+    for await (const batch of client.hScanIterator(key, { COUNT: Math.max(100, limit) })) {
+      for (const entry of batch) {
+        if (entries.length < limit)
+          entries.push(fieldValueEntry(String(entry.field), String(entry.value), valueLimit));
+      }
+      if (entries.length >= limit && entries.length < total) {
+        stoppedEarly = true;
+        break;
+      }
+    }
+  }
+  return collectionRead("hash", entries, total, stoppedEarly || entries.length < total);
+}
+async function readList(client, key, limit, valueLimit) {
+  const [total, values2] = await Promise.all([
+    client.lLen(key),
+    client.lRange(key, 0, limit - 1)
+  ]);
+  const entries = values2.map((value, index) => valueEntry(String(value), valueLimit, index));
+  return collectionRead("list", entries, total, entries.length < total);
+}
+async function readSet(client, key, limit, valueLimit) {
+  const total = await client.sCard(key);
+  const entries = [];
+  let stoppedEarly = false;
+  if (total) {
+    for await (const batch of client.sScanIterator(key, { COUNT: Math.max(100, limit) })) {
+      for (const member of batch) {
+        if (entries.length < limit)
+          entries.push(memberEntry(String(member), valueLimit));
+      }
+      if (entries.length >= limit && entries.length < total) {
+        stoppedEarly = true;
+        break;
+      }
+    }
+  }
+  return collectionRead("set", entries, total, stoppedEarly || entries.length < total);
+}
+async function readZset(client, key, limit, valueLimit) {
+  const [total, values2] = await Promise.all([
+    client.zCard(key),
+    client.zRangeWithScores(key, 0, limit - 1)
+  ]);
+  const entries = values2.map((entry) => memberEntry(String(entry.value), valueLimit, scoreText(entry.score)));
+  return collectionRead("zset", entries, total, entries.length < total);
+}
+async function readStream(client, key, limit, valueLimit) {
+  const [total, messages2] = await Promise.all([
+    client.xLen(key),
+    client.xRange(key, "-", "+", { COUNT: limit })
+  ]);
+  const entries = (messages2 ?? []).map((message) => {
+    const source = message.message instanceof Map ? [...message.message.entries()] : Object.entries(message.message ?? {});
+    const fields = source.map(([field, value]) => fieldValueEntry(String(field), String(value), valueLimit));
+    return { id: String(message.id), fields, truncated: fields.some((field) => field.truncated) };
+  });
+  return collectionRead("stream", entries, total, entries.length < total);
+}
+async function readKey(client, options = {}) {
+  const key = keyText(options?.key);
+  const requestedType = options?.type === undefined ? null : redisType(options.type);
+  const { limit, valueLimit } = readOptions(options);
+  await ensureOpen(client);
+  const actualType = await client.type(key);
+  if (actualType === "none")
+    fail("KEY_NOT_FOUND", "Redis key not found.");
+  if (requestedType && actualType !== requestedType) {
+    fail("TYPE_MISMATCH", `Expected ${requestedType}, but Redis reports ${actualType}.`);
+  }
+  if (!SUPPORTED_TYPES.has(actualType))
+    fail("UNSUPPORTED_TYPE", `Redis type ${actualType} is not supported.`);
+  const [ttl, data] = await Promise.all([
+    client.ttl(key),
+    actualType === "string" ? readString(client, key, valueLimit) : actualType === "hash" ? readHash(client, key, limit, valueLimit) : actualType === "list" ? readList(client, key, limit, valueLimit) : actualType === "set" ? readSet(client, key, limit, valueLimit) : actualType === "zset" ? readZset(client, key, limit, valueLimit) : readStream(client, key, limit, valueLimit)
+  ]);
+  if (ttl === -2)
+    fail("KEY_NOT_FOUND", "Redis key expired or was deleted while reading.");
+  return { key, type: actualType, ttl, ...data };
+}
+var CREATE_SCRIPT = `-- redis.create
+if redis.call('EXISTS', KEYS[1]) ~= 0 then return -5 end
+local kind = ARGV[1]
+local ttl = tonumber(ARGV[2])
+local payload = cjson.decode(ARGV[3])
+if kind == 'string' then
+  redis.call('SET', KEYS[1], payload)
+elseif kind == 'hash' then
+  for _, pair in ipairs(payload) do redis.call('HSET', KEYS[1], pair[1], pair[2]) end
+elseif kind == 'list' then
+  for _, value in ipairs(payload) do redis.call('RPUSH', KEYS[1], value) end
+elseif kind == 'set' then
+  for _, member in ipairs(payload) do redis.call('SADD', KEYS[1], member) end
+elseif kind == 'zset' then
+  for _, pair in ipairs(payload) do redis.call('ZADD', KEYS[1], pair[2], pair[1]) end
+elseif kind == 'stream' then
+  for _, entry in ipairs(payload) do
+    local command = {'XADD', KEYS[1], entry[1]}
+    for _, pair in ipairs(entry[2]) do
+      table.insert(command, pair[1])
+      table.insert(command, pair[2])
+    end
+    redis.call(unpack(command))
+  end
+else
+  return -9
+end
+if ttl and ttl > 0 then redis.call('EXPIRE', KEYS[1], ttl) end
+return 1`;
+var TTL_SCRIPT = `-- redis.ttl
+if redis.call('EXISTS', KEYS[1]) == 0 then return -1 end
+local ttl = tonumber(ARGV[1])
+if ttl == 0 then
+  if redis.call('TTL', KEYS[1]) == -1 then return -8 end
+  redis.call('PERSIST', KEYS[1])
+else
+  redis.call('EXPIRE', KEYS[1], ttl)
+end
+return 1`;
+var TYPE_HELPER = `local kind = redis.call('TYPE', KEYS[1])
+if type(kind) == 'table' then kind = kind['ok'] end
+if kind == 'none' then return -1 end
+if kind ~= EXPECTED then return -2 end`;
+var typedScript = (marker, expected, body) => `-- ${marker}
+${TYPE_HELPER.replace("EXPECTED", `'${expected}'`)}
+${body}`;
+var STRING_SET_SCRIPT = typedScript("redis.string.set", "string", `
+local current = redis.call('GET', KEYS[1])
+if current ~= ARGV[1] then return -3 end
+redis.call('SET', KEYS[1], ARGV[2], 'KEEPTTL')
+return 1`);
+var HASH_ADD_SCRIPT = typedScript("redis.hash.add", "hash", `
+if redis.call('HSETNX', KEYS[1], ARGV[1], ARGV[2]) == 0 then return -5 end
+return 1`);
+var HASH_UPDATE_SCRIPT = typedScript("redis.hash.update", "hash", `
+local current = redis.call('HGET', KEYS[1], ARGV[1])
+if not current then return -4 end
+if current ~= ARGV[2] then return -3 end
+redis.call('HSET', KEYS[1], ARGV[1], ARGV[3])
+return 1`);
+var HASH_DELETE_SCRIPT = typedScript("redis.hash.delete", "hash", `
+local current = redis.call('HGET', KEYS[1], ARGV[1])
+if not current then return -4 end
+if current ~= ARGV[2] then return -3 end
+redis.call('HDEL', KEYS[1], ARGV[1])
+return 1`);
+var LIST_UPDATE_SCRIPT = typedScript("redis.list.update", "list", `
+local current = redis.call('LINDEX', KEYS[1], ARGV[1])
+if not current then return -6 end
+if current ~= ARGV[2] then return -3 end
+redis.call('LSET', KEYS[1], ARGV[1], ARGV[3])
+return 1`);
+var LIST_INSERT_SCRIPT = typedScript("redis.list.insert", "list", `
+local length = redis.call('LLEN', KEYS[1])
+local index = tonumber(ARGV[1])
+if length ~= tonumber(ARGV[3]) then return -3 end
+if index > length then return -6 end
+if length > ${MAX_LIST_STRUCTURE_ENTRIES} then return -7 end
+if index < length then
+  if ARGV[4] ~= '1' then return -3 end
+  local current = redis.call('LINDEX', KEYS[1], index)
+  if current ~= ARGV[5] then return -3 end
+end
+if index == length then redis.call('RPUSH', KEYS[1], ARGV[2]) return 1 end
+if index == 0 then redis.call('LPUSH', KEYS[1], ARGV[2]) return 1 end
+if index * 2 <= (length - index) * 2 + 1 then
+  for _ = 1, index do redis.call('LMOVE', KEYS[1], KEYS[1], 'LEFT', 'RIGHT') end
+  redis.call('LPUSH', KEYS[1], ARGV[2])
+  for _ = 1, index do redis.call('LMOVE', KEYS[1], KEYS[1], 'RIGHT', 'LEFT') end
+else
+  local rotations = length - index
+  for _ = 1, rotations do redis.call('LMOVE', KEYS[1], KEYS[1], 'RIGHT', 'LEFT') end
+  redis.call('LPUSH', KEYS[1], ARGV[2])
+  for _ = 1, rotations + 1 do redis.call('LMOVE', KEYS[1], KEYS[1], 'LEFT', 'RIGHT') end
+end
+return 1`);
+var LIST_DELETE_SCRIPT = typedScript("redis.list.delete", "list", `
+local length = redis.call('LLEN', KEYS[1])
+local index = tonumber(ARGV[1])
+if index >= length then return -6 end
+local current = redis.call('LINDEX', KEYS[1], index)
+if current ~= ARGV[2] then return -3 end
+if length > ${MAX_LIST_STRUCTURE_ENTRIES} then return -7 end
+if index == 0 then redis.call('LPOP', KEYS[1]) return 1 end
+if index == length - 1 then redis.call('RPOP', KEYS[1]) return 1 end
+if index <= length - 1 - index then
+  for _ = 1, index do redis.call('LMOVE', KEYS[1], KEYS[1], 'LEFT', 'RIGHT') end
+  redis.call('LPOP', KEYS[1])
+  for _ = 1, index do redis.call('LMOVE', KEYS[1], KEYS[1], 'RIGHT', 'LEFT') end
+else
+  local rotations = length - 1 - index
+  for _ = 1, rotations do redis.call('LMOVE', KEYS[1], KEYS[1], 'RIGHT', 'LEFT') end
+  redis.call('RPOP', KEYS[1])
+  for _ = 1, rotations do redis.call('LMOVE', KEYS[1], KEYS[1], 'LEFT', 'RIGHT') end
+end
+return 1`);
+var SET_ADD_SCRIPT = typedScript("redis.set.add", "set", `
+if redis.call('SADD', KEYS[1], ARGV[1]) == 0 then return -5 end
+return 1`);
+var SET_REMOVE_SCRIPT = typedScript("redis.set.remove", "set", `
+if redis.call('SREM', KEYS[1], ARGV[1]) == 0 then return -4 end
+return 1`);
+var SET_REPLACE_SCRIPT = typedScript("redis.set.replace", "set", `
+if redis.call('SISMEMBER', KEYS[1], ARGV[1]) == 0 then return -4 end
+if redis.call('SISMEMBER', KEYS[1], ARGV[2]) == 1 then return -5 end
+redis.call('SADD', KEYS[1], ARGV[2])
+redis.call('SREM', KEYS[1], ARGV[1])
+return 1`);
+var SCORE_HELPER = `local function as_score(value)
+  local lower = string.lower(value)
+  if lower == 'inf' or lower == '+inf' then return math.huge end
+  if lower == '-inf' then return -math.huge end
+  return tonumber(value)
+end`;
+var ZSET_ADD_SCRIPT = typedScript("redis.zset.add", "zset", `
+if redis.call('ZADD', KEYS[1], 'NX', ARGV[2], ARGV[1]) == 0 then return -5 end
+return 1`);
+var ZSET_SCORE_SCRIPT = typedScript("redis.zset.score", "zset", `${SCORE_HELPER}
+local current = redis.call('ZSCORE', KEYS[1], ARGV[1])
+if not current then return -4 end
+if as_score(current) ~= as_score(ARGV[3]) then return -3 end
+redis.call('ZADD', KEYS[1], 'XX', ARGV[2], ARGV[1])
+return 1`);
+var ZSET_REPLACE_SCRIPT = typedScript("redis.zset.replace", "zset", `${SCORE_HELPER}
+local current = redis.call('ZSCORE', KEYS[1], ARGV[1])
+if not current then return -4 end
+if as_score(current) ~= as_score(ARGV[3]) then return -3 end
+if ARGV[1] == ARGV[2] then return -8 end
+if redis.call('ZSCORE', KEYS[1], ARGV[2]) then return -5 end
+local next_score = ARGV[4]
+if next_score == '' then next_score = current end
+redis.call('ZADD', KEYS[1], next_score, ARGV[2])
+redis.call('ZREM', KEYS[1], ARGV[1])
+return 1`);
+var ZSET_REMOVE_SCRIPT = typedScript("redis.zset.remove", "zset", `${SCORE_HELPER}
+local current = redis.call('ZSCORE', KEYS[1], ARGV[1])
+if not current then return -4 end
+if as_score(current) ~= as_score(ARGV[2]) then return -3 end
+redis.call('ZREM', KEYS[1], ARGV[1])
+return 1`);
+var STREAM_ADD_SCRIPT = typedScript("redis.stream.add", "stream", `
+local command = {'XADD', KEYS[1], ARGV[1]}
+for index = 2, #ARGV, 2 do
+  table.insert(command, ARGV[index])
+  table.insert(command, ARGV[index + 1])
+end
+return redis.call(unpack(command))`);
+var STREAM_DELETE_SCRIPT = typedScript("redis.stream.delete", "stream", `
+if redis.call('XDEL', KEYS[1], ARGV[1]) == 0 then return -4 end
+return 1`);
+async function runLua(client, script, key, args, { type, subject = "Key", errors = {} } = {}) {
+  const reply = await client.eval(script, { keys: [key], arguments: args });
+  const numeric = typeof reply === "number" ? reply : typeof reply === "bigint" ? Number(reply) : null;
+  if (numeric !== null && numeric < 0) {
+    const defaults = {
+      [-1]: ["KEY_NOT_FOUND", "Redis key not found. Refresh and retry."],
+      [-2]: ["TYPE_MISMATCH", `Expected a ${type} key. Refresh and retry.`],
+      [-3]: ["CONFLICT", `${subject} changed or does not match the expected original value. Refresh and retry.`],
+      [-4]: ["NOT_FOUND", `${subject} not found. Refresh and retry.`],
+      [-5]: ["CONFLICT", `${subject} already exists.`],
+      [-6]: ["INDEX_OUT_OF_RANGE", "List index is out of range."],
+      [-7]: ["TOO_LARGE", `List structural edits are limited to ${MAX_LIST_STRUCTURE_ENTRIES} entries.`],
+      [-8]: ["NO_OP", "The requested operation would not change Redis data."],
+      [-9]: ["INVALID_INPUT", "Redis rejected the validated operation shape."]
+    };
+    const [code, message] = errors[numeric] ?? defaults[numeric] ?? ["INVALID_INPUT", "Redis mutation failed."];
+    fail(code, message);
+  }
+  if (reply === null || numeric === 0)
+    fail("NO_OP", "Redis returned no mutation result.");
+  return reply;
+}
+function luaPrepared(operation, type, script, args, options = {}) {
+  return async (client) => {
+    const reply = await runLua(client, script, operation.key, args, { type, ...options });
+    const result = { ok: true, op: operation.op, key: operation.key, type, affected: 1 };
+    if (operation.op === "stream.add")
+      result.id = String(reply);
+    return result;
+  };
+}
+function prepareCreate(operation) {
+  const key = keyText(operation.key);
+  const type = redisType(operation.type);
+  const ttl = ttlValue(operation.ttl);
+  const budget = payloadBudget();
+  let payload;
+  let affected = 1;
+  if (type === "string") {
+    payload = valueText(operation.value);
+    budget(payload);
+  } else if (type === "hash") {
+    const fields = new Set;
+    payload = entriesArray(operation.entries).map((item) => {
+      objectValue(item, "Hash entry");
+      const field = nameText(item.field, "Hash field");
+      const value = valueText(item.value, "Hash field value");
+      if (fields.has(field))
+        invalid2("Hash creation contains a duplicate field.");
+      fields.add(field);
+      budget(field);
+      budget(value);
+      return [field, value];
+    });
+  } else if (type === "list") {
+    payload = entriesArray(operation.entries).map((item) => {
+      objectValue(item, "List entry");
+      const value = valueText(item.value, "List value");
+      budget(value);
+      return value;
+    });
+  } else if (type === "set") {
+    const members = new Set;
+    payload = entriesArray(operation.entries).map((item) => {
+      objectValue(item, "Set entry");
+      const member = nameText(item.member);
+      if (members.has(member))
+        invalid2("Set creation contains a duplicate member.");
+      members.add(member);
+      budget(member);
+      return member;
+    });
+  } else if (type === "zset") {
+    const members = new Set;
+    payload = entriesArray(operation.entries).map((item) => {
+      objectValue(item, "Sorted-set entry");
+      const member = nameText(item.member);
+      const score = scoreText(item.score);
+      if (members.has(member))
+        invalid2("Sorted-set creation contains a duplicate member.");
+      members.add(member);
+      budget(member);
+      budget(score);
+      return [member, score];
+    });
+  } else {
+    payload = streamEntries(operation.entries, budget).map((entry) => [entry.id.text, entry.fields]);
+  }
+  if (type !== "string")
+    affected = payload.length;
+  return async (client) => {
+    await runLua(client, CREATE_SCRIPT, key, [type, String(ttl ?? 0), JSON.stringify(payload)], {
+      subject: "Redis key",
+      errors: { [-5]: ["KEY_EXISTS", "Redis key already exists."] }
+    });
+    return { ok: true, op: "create", key, type, ttl, affected };
+  };
+}
+function prepareOperation(operation) {
+  objectValue(operation, "Operation");
+  if (typeof operation.op !== "string")
+    invalid2("Operation op is required.");
+  if (operation.op === "create")
+    return prepareCreate(operation);
+  const key = keyText(operation.key);
+  if (operation.op === "delete") {
+    return async (client) => {
+      const affected = await client.del(key);
+      if (affected !== 1)
+        fail("KEY_NOT_FOUND", "Redis key not found. Refresh and retry.");
+      return { ok: true, op: "delete", key, affected: 1 };
+    };
+  }
+  if (operation.op === "ttl") {
+    if (!Object.prototype.hasOwnProperty.call(operation, "ttl"))
+      invalid2("TTL operation requires ttl (null removes expiry).");
+    const ttl = ttlValue(operation.ttl, false);
+    return async (client) => {
+      await runLua(client, TTL_SCRIPT, key, [String(ttl ?? 0)], {
+        errors: { [-8]: ["NO_OP", "Redis key already has no expiration."] }
+      });
+      return { ok: true, op: "ttl", key, ttl, affected: 1 };
+    };
+  }
+  const prepared = { op: operation.op, key };
+  switch (operation.op) {
+    case "string.set": {
+      const expectedValue = valueText(operation.expectedValue, "Expected string value");
+      const value = valueText(operation.value);
+      if (value === expectedValue)
+        fail("NO_OP", "String value is unchanged.");
+      return luaPrepared(prepared, "string", STRING_SET_SCRIPT, [expectedValue, value], { subject: "String value" });
+    }
+    case "hash.add": {
+      const field = nameText(operation.field, "Hash field");
+      const value = valueText(operation.value, "Hash field value");
+      return luaPrepared(prepared, "hash", HASH_ADD_SCRIPT, [field, value], { subject: "Hash field" });
+    }
+    case "hash.update": {
+      const field = nameText(operation.field, "Hash field");
+      const expectedValue = valueText(operation.expectedValue, "Expected hash value");
+      const value = valueText(operation.value, "Hash field value");
+      if (value === expectedValue)
+        fail("NO_OP", "Hash field value is unchanged.");
+      return luaPrepared(prepared, "hash", HASH_UPDATE_SCRIPT, [field, expectedValue, value], { subject: "Hash field" });
+    }
+    case "hash.delete": {
+      const field = nameText(operation.field, "Hash field");
+      const expectedValue = valueText(operation.expectedValue, "Expected hash value");
+      return luaPrepared(prepared, "hash", HASH_DELETE_SCRIPT, [field, expectedValue], { subject: "Hash field" });
+    }
+    case "list.update": {
+      const index = boundedInteger(operation.index, "List index");
+      const expectedValue = valueText(operation.expectedValue, "Expected list value");
+      const value = valueText(operation.value, "List value");
+      if (value === expectedValue)
+        fail("NO_OP", "List value is unchanged.");
+      return luaPrepared(prepared, "list", LIST_UPDATE_SCRIPT, [String(index), expectedValue, value], { subject: "List value" });
+    }
+    case "list.insert": {
+      const index = boundedInteger(operation.index, "List index");
+      const expectedLength = boundedInteger(operation.expectedLength, "Expected list length");
+      const value = valueText(operation.value, "List value");
+      if (index > expectedLength)
+        fail("INDEX_OUT_OF_RANGE", "List insertion index exceeds the expected length.");
+      const expectedValue = index < expectedLength ? valueText(operation.expectedValue, "Expected list pivot value") : "";
+      return luaPrepared(prepared, "list", LIST_INSERT_SCRIPT, [
+        String(index),
+        value,
+        String(expectedLength),
+        index < expectedLength ? "1" : "0",
+        expectedValue
+      ], { subject: "List" });
+    }
+    case "list.delete": {
+      const index = boundedInteger(operation.index, "List index");
+      const expectedValue = valueText(operation.expectedValue, "Expected list value");
+      return luaPrepared(prepared, "list", LIST_DELETE_SCRIPT, [String(index), expectedValue], { subject: "List value" });
+    }
+    case "set.add":
+      return luaPrepared(prepared, "set", SET_ADD_SCRIPT, [nameText(operation.member)], { subject: "Set member" });
+    case "set.remove":
+      return luaPrepared(prepared, "set", SET_REMOVE_SCRIPT, [nameText(operation.member)], { subject: "Set member" });
+    case "set.replace": {
+      const member = nameText(operation.member);
+      const newMember = nameText(operation.newMember, "New set member");
+      if (member === newMember)
+        fail("NO_OP", "Set member is unchanged.");
+      return luaPrepared(prepared, "set", SET_REPLACE_SCRIPT, [member, newMember], { subject: "Set member" });
+    }
+    case "zset.add": {
+      const member = nameText(operation.member);
+      const score = scoreText(operation.score);
+      return luaPrepared(prepared, "zset", ZSET_ADD_SCRIPT, [member, score], { subject: "Sorted-set member" });
+    }
+    case "zset.score": {
+      const member = nameText(operation.member);
+      const score = scoreText(operation.score);
+      const expectedScore = scoreText(operation.expectedScore, "Expected score");
+      if (sameScore(score, expectedScore))
+        fail("NO_OP", "Sorted-set score is unchanged.");
+      return luaPrepared(prepared, "zset", ZSET_SCORE_SCRIPT, [member, score, expectedScore], { subject: "Sorted-set member" });
+    }
+    case "zset.replace": {
+      const member = nameText(operation.member);
+      const newMember = nameText(operation.newMember, "New sorted-set member");
+      const expectedScore = scoreText(operation.expectedScore, "Expected score");
+      const score = operation.score === undefined ? "" : scoreText(operation.score);
+      if (member === newMember)
+        fail("NO_OP", "Use zset.score to change a score without renaming the member.");
+      return luaPrepared(prepared, "zset", ZSET_REPLACE_SCRIPT, [member, newMember, expectedScore, score], { subject: "Sorted-set member" });
+    }
+    case "zset.remove": {
+      const member = nameText(operation.member);
+      const expectedScore = scoreText(operation.expectedScore, "Expected score");
+      return luaPrepared(prepared, "zset", ZSET_REMOVE_SCRIPT, [member, expectedScore], { subject: "Sorted-set member" });
+    }
+    case "stream.add": {
+      const id = streamId(operation.id ?? "*");
+      const budget = payloadBudget();
+      const fields = streamFields(operation.fields, budget);
+      budget(id.text);
+      return luaPrepared(prepared, "stream", STREAM_ADD_SCRIPT, [id.text, ...fields.flat()], { subject: "Stream entry" });
+    }
+    case "stream.delete": {
+      const id = streamId(operation.id, { allowAuto: false, allowZero: true });
+      return luaPrepared(prepared, "stream", STREAM_DELETE_SCRIPT, [id.text], { subject: "Stream entry" });
+    }
+    default:
+      invalid2(`Unsupported Redis operation: ${operation.op}.`);
+  }
+}
+async function applyOperation(client, operation) {
+  const prepared = prepareOperation(operation);
+  await ensureOpen(client);
+  return prepared(client);
 }
 
 // src/service/main.js
@@ -65115,7 +66232,7 @@ function send(res, status, value) {
   });
   res.end(body);
 }
-var fail = (res, status, message) => send(res, status, { error: String(message).slice(0, 500) });
+var fail2 = (res, status, message) => send(res, status, { error: String(message).slice(0, 500) });
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let size2 = 0;
@@ -65160,12 +66277,12 @@ async function handle(req, res, url, body) {
     const { name, dsn } = body ?? {};
     const kind = String(body?.kind ?? "postgres");
     if (noQuery(name) || noQuery(dsn))
-      return fail(res, 400, "Name and DSN are required.");
+      return fail2(res, 400, "Name and DSN are required.");
     try {
       assertDsn(kind, String(dsn));
       await probeConnection(kind, String(dsn));
     } catch (error) {
-      return fail(res, 400, `Connection failed: ${error.message}`);
+      return fail2(res, 400, `Connection failed: ${error.message}`);
     }
     const c = { id: slug(name), name: String(name).slice(0, 60), kind, dsn: String(dsn) };
     connections.push(c);
@@ -65176,7 +66293,7 @@ async function handle(req, res, url, body) {
     const id = q.get("id") ?? body?.id;
     const c = connections.find((x) => x.id === id);
     if (!c)
-      return fail(res, 404, "Connection not found.");
+      return fail2(res, 404, "Connection not found.");
     connections = connections.filter((x) => x.id !== id);
     persist();
     await closeConnection(c.id);
@@ -65195,7 +66312,7 @@ async function handle(req, res, url, body) {
   if (path === "/table" && req.method === "GET") {
     const { schema, table } = Object.fromEntries(q);
     if (noQuery(schema) || noQuery(table))
-      return fail(res, 400, "Both schema and table are required.");
+      return fail2(res, 400, "Both schema and table are required.");
     const id = q.get("connection") ?? undefined;
     const c = connectionFor(id);
     const kind = connectionKind(c);
@@ -65215,10 +66332,58 @@ async function handle(req, res, url, body) {
       return timed(await readKeys(redisFor(id), options));
     return timed(await readTable(poolFor(id), options));
   }
+  if (path === "/redis/key" && req.method === "GET") {
+    const key = q.get("key");
+    if (noQuery(key))
+      return fail2(res, 400, "Redis key is required.");
+    const result = await readKey(redisFor(q.get("connection") ?? undefined), {
+      key,
+      type: q.get("type") || undefined,
+      limit: int(q.get("limit"), 500),
+      valueLimit: int(q.get("valueLimit"), 262144)
+    });
+    return timed(result);
+  }
+  if (path === "/redis/operation" && req.method === "POST") {
+    const result = await applyOperation(redisFor(body?.connection), body?.operation);
+    return timed(result);
+  }
+  if (path === "/mongo/document" && req.method === "POST") {
+    const b2 = body ?? {};
+    if (noQuery(b2.schema) || noQuery(b2.table) || noQuery(b2.document)) {
+      return fail2(res, 400, "schema, table, and a canonical Extended JSON document are required.");
+    }
+    const result = await insertDocument(mongoFor(b2.connection), b2);
+    return timed({ ok: true, ...result });
+  }
+  if (path === "/mongo/document" && req.method === "PATCH") {
+    const b2 = body ?? {};
+    if (noQuery(b2.schema) || noQuery(b2.table) || noQuery(b2.id) || noQuery(b2.original)) {
+      return fail2(res, 400, "schema, table, id, and the original canonical document are required.");
+    }
+    const result = await updateDocument(mongoFor(b2.connection), b2);
+    return timed({ ok: true, ...result });
+  }
+  if (path === "/mongo/document" && req.method === "PUT") {
+    const b2 = body ?? {};
+    if (noQuery(b2.schema) || noQuery(b2.table) || noQuery(b2.original) || noQuery(b2.document)) {
+      return fail2(res, 400, "schema, table, original, and the replacement canonical document are required.");
+    }
+    const result = await replaceDocument(mongoFor(b2.connection), b2);
+    return timed({ ok: true, ...result });
+  }
+  if (path === "/mongo/document" && req.method === "DELETE") {
+    const b2 = body ?? {};
+    if (noQuery(b2.schema) || noQuery(b2.table) || noQuery(b2.id) || noQuery(b2.original)) {
+      return fail2(res, 400, "schema, table, id, and the original canonical document are required.");
+    }
+    const result = await deleteDocument(mongoFor(b2.connection), b2);
+    return timed({ ok: true, ...result });
+  }
   if (path === "/query" && req.method === "POST") {
     const { connection: connection2, sql: query, limit } = body ?? {};
     if (noQuery(query))
-      return fail(res, 400, "SQL query cannot be empty.");
+      return fail2(res, 400, "SQL query cannot be empty.");
     const pool = poolFor(connection2);
     const result = await readOnlyQuery(pool, String(query), Math.max(1, Math.min(500, int(limit, 100))));
     remember(query, "query");
@@ -65227,10 +66392,10 @@ async function handle(req, res, url, body) {
   if (path === "/execute" && req.method === "POST") {
     const { connection: connection2, sql: query } = body ?? {};
     if (noQuery(query))
-      return fail(res, 400, "SQL query cannot be empty.");
+      return fail2(res, 400, "SQL query cannot be empty.");
     assertSingleStatement(query);
     if (SELECTISH.test(String(query).trim())) {
-      return fail(res, 400, "This is a SELECT-like query—it will run in safe mode. Simply click “Run” without making any changes.");
+      return fail2(res, 400, "This is a SELECT-like query—it will run in safe mode. Simply click “Run” without making any changes.");
     }
     const pool = poolFor(connection2);
     const result = await execute(pool, String(query));
@@ -65240,7 +66405,7 @@ async function handle(req, res, url, body) {
   if (path === "/cell" && req.method === "POST") {
     const b2 = body ?? {};
     if ([b2.schema, b2.table, b2.pkCol, b2.col].some(noQuery) || b2.pkVal === undefined) {
-      return fail(res, 400, "schema, table, pkCol, pkVal, and col are required.");
+      return fail2(res, 400, "schema, table, pkCol, pkVal, and col are required.");
     }
     const pool = poolFor(b2.connection);
     const { count } = await applyBatch(pool, {
@@ -65254,12 +66419,12 @@ async function handle(req, res, url, body) {
   if (path === "/batch" && req.method === "POST") {
     const b2 = body ?? {};
     if (noQuery(b2.schema) || noQuery(b2.table) || noQuery(b2.pk) || !Array.isArray(b2.ops) || !b2.ops.length) {
-      return fail(res, 400, "schema, table, pk, and a non-empty list of operations are required.");
+      return fail2(res, 400, "schema, table, pk, and a non-empty list of operations are required.");
     }
     try {
       assertBatchOps(b2.ops);
     } catch (error) {
-      return fail(res, 400, error.message);
+      return fail2(res, 400, error.message);
     }
     const pool = poolFor(b2.connection);
     const { count } = await applyBatch(pool, {
@@ -65273,7 +66438,7 @@ async function handle(req, res, url, body) {
   if (path === "/row" && req.method === "POST") {
     const b2 = body ?? {};
     if (noQuery(b2.schema) || noQuery(b2.table) || !b2.values || typeof b2.values !== "object") {
-      return fail(res, 400, "schema, table, and values are required.");
+      return fail2(res, 400, "schema, table, and values are required.");
     }
     const pool = poolFor(b2.connection);
     const { count } = await insertRow(pool, b2);
@@ -65282,7 +66447,7 @@ async function handle(req, res, url, body) {
   if (path === "/row" && req.method === "DELETE") {
     const b2 = body ?? {};
     if ([b2.schema, b2.table, b2.pkCol].some(noQuery) || b2.pkVal === undefined) {
-      return fail(res, 400, "schema, table, pkCol, and pkVal are required.");
+      return fail2(res, 400, "schema, table, pkCol, and pkVal are required.");
     }
     const pool = poolFor(b2.connection);
     const { count } = await applyBatch(pool, {
@@ -65296,20 +66461,20 @@ async function handle(req, res, url, body) {
   if (path === "/history" && req.method === "GET") {
     return timed({ items: history.slice(0, 30) });
   }
-  return fail(res, 404, `Unknown route ${req.method} ${path}.`);
+  return fail2(res, 404, `Unknown route ${req.method} ${path}.`);
 }
 var server = http.createServer(async (req, res) => {
   const auth = req.headers.authorization ?? "";
   if (!TOKEN || auth !== `Bearer ${TOKEN}`) {
-    return fail(res, 401, "Access denied.");
+    return fail2(res, 401, "Access denied.");
   }
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
   let body = {};
-  if (req.method === "POST" || req.method === "DELETE") {
+  if (["POST", "PATCH", "PUT", "DELETE"].includes(req.method)) {
     try {
       body = await readBody(req);
     } catch (error) {
-      return fail(res, 400, error.message);
+      return fail2(res, 400, error.message);
     }
   }
   try {
@@ -65317,8 +66482,9 @@ var server = http.createServer(async (req, res) => {
   } catch (error) {
     const message = error?.message ?? String(error);
     console.error(`${req.method} ${url.pathname}:`, message);
+    const status = Number.isInteger(error?.status) && error.status >= 400 && error.status < 600 ? error.status : 500;
     if (!res.headersSent)
-      fail(res, 500, message);
+      fail2(res, status, message);
   }
 });
 server.listen(PORT, "127.0.0.1", () => {

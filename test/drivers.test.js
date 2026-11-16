@@ -15,8 +15,8 @@ describe("MongoDB adapter", () => {
 
   it("serializes BSON identifiers and nested values", () => {
     const id = new ObjectId("000000000000000000000001");
-    expect(serializeMongo(id)).toBe(id.toHexString());
-    expect(serializeMongo({ at: new Date("2026-01-02T03:04:05Z") })).toContain("2026-01-02T03:04:05Z");
+    expect(serializeMongo(id)).toBe('{"$oid":"000000000000000000000001"}');
+    expect(serializeMongo({ at: new Date("2026-01-02T03:04:05Z") })).toContain('"$date"');
   });
 
   it("returns heterogeneous documents through the shared page contract", async () => {
@@ -38,7 +38,9 @@ describe("MongoDB adapter", () => {
     expect(page.rows[0][0]).toBe("000000000000000000000001");
     expect(page.rows[0][2]).toBe('{"role":"admin"}');
     expect(page.total).toBe(2);
-    expect(page.readOnly).toBe(true);
+    expect(page.readOnly).toBe(false);
+    expect(page.documents[0]).toContain('"$oid"');
+    expect(page.present[1]).toEqual([true, true, false, true]);
   });
 });
 

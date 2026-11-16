@@ -35,7 +35,16 @@ Edit source files, not `panel/main.js` or `service/main.js`; those bundles are g
 4. Update documentation for user-visible behavior, limitations, DSN formats, or installation changes.
 5. Keep screenshots free of real credentials, private hostnames, and sensitive data.
 
-For database changes, prefer real integration checks using the included demo stack in addition to unit tests. MongoDB and Redis are currently read-only; preserve those guarantees unless the pull request explicitly implements and documents a safe write workflow.
+For database changes, run the real integration checks using the included demo stack in addition to unit tests:
+
+```bash
+docker compose up -d --wait
+./demo/seed-valkey.sh
+DEMO_INTEGRATION=1 bun test test/demo-integration.test.js
+MONGO_LIVE_TEST=1 bun test test/mongo.test.js
+```
+
+The MongoDB live tests additionally verify BSON type-only conflict detection against the running demo server. Integration tests create uniquely named temporary records, documents, collections, and keys, then clean them up. Preserve the editing invariants: PostgreSQL batches are transactional; MongoDB uses canonical Extended JSON and optimistic original BSON type-and-value checks; Redis/Valkey uses operation-specific atomic guards, preserves TTL, and never writes clipped display data. Scoped JavaScript `Code` is a deliberate fail-closed exception: guarded edits of that field and guarded replacement/deletion of containing documents return 400 because MongoDB cannot inspect its scope atomically.
 
 ## Security and credentials
 

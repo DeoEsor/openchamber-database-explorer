@@ -35,6 +35,8 @@ The demo deliberately uses host ports `55432`, `57017`, and `56379` to reduce co
 - Filter customers by `status = active`.
 - Sort by `monthly_revenue`.
 - Inspect the `revenue_by_plan` view.
+- Edit `customers.external_id`, `joined_on`, `local_checkpoint`, `opens_at`, and `created_at` to try UUID generation and date/time controls.
+- Compare explicit NULL in `notes`, an empty string in `status`, and database defaults during insert.
 - Open the SQL console and run:
 
 ```sql
@@ -55,12 +57,16 @@ ORDER BY monthly_revenue DESC;
 - Open `acme.workspaces` and `acme.audit_events`.
 - Filter workspaces by plan or region.
 - Switch between Table, JSON, and Text views to inspect arrays and BSON values.
+- Edit `workspaces` fields containing ObjectId, Date, Decimal128, NumberLong, nested billing data, null, and missing values.
+- Insert, replace, and delete a document. To see conflict handling, change the same field in another client and then apply the older edit.
 
 ### Redis / Valkey
 
 - Open `db0.keys`.
 - Compare key types, TTLs, and values.
 - Filter keys containing `workspace` or `session`.
+- Edit the expiring `session:demo:token` string, `workspace:northwind:settings` hash, `queue:provision` list, `workspace:northwind:roles` set, `metrics:response-times` sorted set, and `events:workspace` stream.
+- Create and delete a disposable key; verify that edits preserve an existing TTL.
 
 ## Stop or reset
 

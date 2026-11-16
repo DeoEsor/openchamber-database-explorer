@@ -16,6 +16,12 @@ const workspaces = [
 const inserted = db.workspaces.insertMany(workspaces.map((workspace, index) => ({
   ...workspace,
   status: "active",
+  externalRef: new ObjectId(`6500000000000000000000${String(index).padStart(2, "0")}`),
+  budget: Decimal128.fromString((12500.5 + index * 750.25).toFixed(2)),
+  seatLimit: NumberLong(String(100 + index * 25)),
+  billing: { currency: "USD", taxRate: Decimal128.fromString(index % 2 ? "20.00" : "0.00") },
+  optionalNote: index === 0 ? null : `Demo workspace ${index + 1}`,
+  ...(index === 0 ? { legacyCode: "NW-001" } : {}),
   createdAt: new Date(Date.UTC(2026, index, 4, 9, 30)),
   updatedAt: new Date("2026-10-28T12:00:00Z")
 })));

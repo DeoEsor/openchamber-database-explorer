@@ -1770,6 +1770,757 @@ ${tone("success")}${tone("warning")}${tone("error")}${tone("info")}
 ${GUEST_SCROLLBAR_CSS}
 ${UI_SIZE_CSS}
 ${GUEST_UI_LOOK_CSS}`;
+  // src/panel/redis-editor.js
+  var REDIS_EDITOR_CSS = `
+.sheet.redis-key-editor { width: min(92%, 540px); }
+.sheet.redis-key-editor .sbody { gap: 10px; }
+.redis-key-meta { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 9px; font-size: 10.5px; }
+.redis-key-meta dt { color: var(--oc-muted, #999); }
+.redis-key-meta dd { margin: 0; min-width: 0; overflow-wrap: anywhere; font-family: var(--oc-mono, ui-monospace, monospace); }
+.redis-section { border: 1px solid var(--oc-border, #333); border-radius: var(--oc-radius, 8px); padding: 8px; min-width: 0; }
+.redis-section-head { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-bottom: 7px; }
+.redis-section-head h4 { margin: 0; flex: 1; font-size: 11px; }
+.redis-section-note { color: var(--oc-muted, #999); font-size: 10px; line-height: 1.45; }
+.redis-warning { color: var(--oc-warning, #d29922); font-size: 10.5px; line-height: 1.5; }
+.redis-error { color: var(--oc-error-text, #f88); font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.redis-read-limits { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 6px; align-items: end; }
+.redis-read-limits label, .redis-ttl-row label { display: flex; flex-direction: column; gap: 3px; color: var(--oc-muted, #999); font-size: 10px; min-width: 0; }
+.redis-key-editor input, .redis-create-form input, .redis-operation-form input {
+  width: 100%; min-width: 0; padding: 5px 7px; border: 1px solid var(--oc-border, #333); border-radius: 6px;
+  background: var(--oc-bg, #1e1e1e); color: var(--oc-fg, #eee); font: 11px/1.4 var(--oc-mono, ui-monospace, monospace);
+}
+.redis-ttl-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px; align-items: end; }
+.redis-entry { border-top: 1px solid color-mix(in srgb, var(--oc-border, #333) 65%, transparent); padding: 7px 0; min-width: 0; }
+.redis-entry:first-child { border-top: 0; padding-top: 0; }
+.redis-entry:last-child { padding-bottom: 0; }
+.redis-entry-head { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-bottom: 4px; }
+.redis-entry-title { flex: 1; min-width: 80px; color: var(--oc-primary-text, #9dc1ff); font: 600 10.5px var(--oc-mono, ui-monospace, monospace); overflow-wrap: anywhere; }
+.redis-entry-value { margin: 0; max-height: 150px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--oc-fg, #ddd); font: 10.5px/1.5 var(--oc-mono, ui-monospace, monospace); }
+.redis-entry-value.empty { color: var(--oc-subtle, #777); font-style: italic; }
+.redis-entry-actions { display: flex; gap: 3px; flex-wrap: wrap; }
+.redis-stream-fields { display: flex; flex-direction: column; gap: 7px; }
+.redis-stream-field { border: 1px solid var(--oc-border, #333); border-radius: 6px; padding: 7px; }
+.redis-stream-field .redis-entry-head { margin-bottom: 5px; }
+.redis-create-form, .redis-operation-form { display: flex; flex-direction: column; gap: 10px; }
+.redis-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.redis-form-grid .wide { grid-column: 1 / -1; }
+.redis-operation-form label.fld, .redis-create-form label.fld { min-width: 0; }
+.redis-operation-form textarea, .redis-create-form textarea { min-height: 90px; max-height: 35vh; }
+.redis-key-editor footer { flex-wrap: wrap; }
+.redis-key-editor footer .spacer { flex: 1; }
+@media (max-width: 560px) {
+  .sheet.redis-key-editor { width: 94%; }
+  .redis-read-limits { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .redis-read-limits .btn { grid-column: 1 / -1; justify-self: start; }
+  .redis-ttl-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .redis-ttl-row .persist { grid-column: 1 / -1; justify-self: start; }
+  .redis-form-grid { grid-template-columns: minmax(0, 1fr); }
+  .redis-form-grid .wide { grid-column: auto; }
+}
+@media (max-width: 410px) {
+  .overlay { padding: 8px; }
+  .redis-key-editor .sbody { padding-inline: 9px; }
+  .redis-read-limits, .redis-ttl-row { grid-template-columns: minmax(0, 1fr); }
+  .redis-read-limits .btn, .redis-ttl-row .persist { grid-column: auto; }
+}
+`;
+  var el2 = (tag, cls, text) => {
+    const node = document.createElement(tag);
+    if (cls)
+      node.className = cls;
+    if (text !== undefined)
+      node.textContent = text;
+    return node;
+  };
+  var MAX_TTL = 2147483647;
+  function readPositiveInteger(text, label, max = Number.MAX_SAFE_INTEGER) {
+    if (!/^\d+$/.test(String(text).trim()))
+      throw new Error(`${label} must be a non-negative integer.`);
+    const value = Number(String(text).trim());
+    if (!Number.isSafeInteger(value) || value > max)
+      throw new Error(`${label} must be between 0 and ${max}.`);
+    return value;
+  }
+  function readTtl(text) {
+    if (!String(text).trim())
+      return null;
+    const value = readPositiveInteger(text, "TTL", MAX_TTL);
+    if (value < 1)
+      throw new Error(`TTL must be empty or an integer from 1 to ${MAX_TTL} seconds.`);
+    return value;
+  }
+  function textInput(value = "", placeholder = "") {
+    const input = el2("input");
+    input.type = "text";
+    input.value = value ?? "";
+    input.placeholder = placeholder;
+    input.spellcheck = false;
+    return input;
+  }
+  function textArea(value = "", placeholder = "") {
+    const input = el2("textarea");
+    input.value = value ?? "";
+    input.placeholder = placeholder;
+    input.spellcheck = false;
+    return input;
+  }
+  function field2(label, input, wide = false) {
+    const wrapper = el2("label", `fld${wide ? " wide" : ""}`, label);
+    wrapper.appendChild(input);
+    return wrapper;
+  }
+  function action(label, onClick, { kind = "", enabled = true, title = "" } = {}) {
+    const button2 = el2("button", `btn ${kind}`, label);
+    button2.disabled = !enabled;
+    if (title)
+      button2.title = title;
+    if (enabled)
+      button2.addEventListener("click", onClick);
+    return button2;
+  }
+  function createRedisPanel({ svc, dialog, confirmDialog, toast }) {
+    function operationDialog({ connection, title, primary: primary2 = "Apply", success = "Redis operation applied.", build, onSuccess }) {
+      let busy = false;
+      let bodyRef = null;
+      let errorRef = null;
+      return dialog({
+        title,
+        className: "typed-dialog",
+        isBusy: () => busy,
+        build: (body) => {
+          bodyRef = body;
+          const form = el2("div", "redis-operation-form");
+          body.appendChild(form);
+          body._readOperation = build(form);
+          errorRef = el2("div", "typed-error");
+          errorRef.setAttribute("role", "alert");
+          body.appendChild(errorRef);
+          body.appendChild(el2("div", "typed-note", "Value edits use optimistic snapshot checks. Additions, TTL changes, key deletion, and stream operations act on current key state. ⌘/Ctrl+Enter applies."));
+        },
+        actions: [
+          { label: "Cancel", value: null },
+          {
+            label: primary2,
+            kind: "primary",
+            shortcut: true,
+            onClick: async (done) => {
+              if (busy)
+                return false;
+              let operation;
+              try {
+                operation = bodyRef._readOperation();
+                if (!operation || typeof operation !== "object")
+                  throw new Error("The Redis operation is incomplete.");
+              } catch (error) {
+                errorRef.textContent = error.message;
+                return false;
+              }
+              busy = true;
+              errorRef.textContent = "";
+              const controls = [...bodyRef.parentElement.querySelectorAll("button, input, textarea, select")];
+              const disabled = controls.map((control) => control.disabled);
+              controls.forEach((control) => {
+                control.disabled = true;
+              });
+              try {
+                await svc("POST", "/redis/operation", { body: { connection, operation } });
+                done(true);
+                toast("success", success);
+                await onSuccess?.();
+              } catch (error) {
+                busy = false;
+                controls.forEach((control, index) => {
+                  control.disabled = disabled[index];
+                });
+                errorRef.textContent = error.message;
+                toast("error", error.message);
+                return false;
+              }
+            }
+          }
+        ]
+      });
+    }
+    function streamFieldsEditor(container, initial = [{ field: "", value: "" }]) {
+      const rows = el2("div", "redis-stream-fields");
+      const addRow = (entry = { field: "", value: "" }) => {
+        const row = el2("div", "redis-stream-field");
+        const head = el2("div", "redis-entry-head");
+        head.appendChild(el2("span", "redis-entry-title", "Field / value"));
+        const remove = el2("button", "iconbtn danger", "Remove");
+        remove.type = "button";
+        remove.disabled = rows.childElementCount === 0;
+        remove.addEventListener("click", () => {
+          if (rows.childElementCount <= 1)
+            return;
+          row.remove();
+          for (const item of rows.children) {
+            const button2 = item.querySelector(".iconbtn");
+            if (button2)
+              button2.disabled = rows.childElementCount <= 1;
+          }
+        });
+        head.appendChild(remove);
+        const name = textInput(entry.field, "field");
+        name.dataset.role = "field";
+        const value = textArea(entry.value, "value");
+        value.dataset.role = "value";
+        row.append(head, field2("Field", name), field2("Value", value));
+        rows.appendChild(row);
+        for (const item of rows.children) {
+          const button2 = item.querySelector(".iconbtn");
+          if (button2)
+            button2.disabled = rows.childElementCount <= 1;
+        }
+      };
+      initial.forEach(addRow);
+      const add = el2("button", "iconbtn", "+ Add field");
+      add.type = "button";
+      add.addEventListener("click", () => addRow());
+      container.append(rows, add);
+      return () => [...rows.children].map((row) => ({
+        field: row.querySelector("[data-role=field]").value,
+        value: row.querySelector("[data-role=value]").value
+      }));
+    }
+    function openCreate({ connection, onCreated }) {
+      let type = "string";
+      return operationDialog({
+        connection,
+        title: "New Redis key",
+        primary: "Create key",
+        success: "Redis key created.",
+        onSuccess: onCreated,
+        build: (body) => {
+          body.classList.add("redis-create-form");
+          const key = textInput("", "key");
+          const typeInput = el2("select");
+          for (const value of ["string", "hash", "list", "set", "zset", "stream"]) {
+            const option = el2("option", null, value);
+            option.value = value;
+            typeInput.appendChild(option);
+          }
+          const ttl = textInput("", "No expiry");
+          const common = el2("div", "redis-form-grid");
+          common.append(field2("Key", key, true), field2("Type", typeInput), field2("TTL seconds (optional)", ttl));
+          body.appendChild(common);
+          const stringValue = textArea("", "Value");
+          const hashField = textInput("", "field");
+          const hashValue = textArea("", "value");
+          const listValue = textArea("", "value");
+          const setMember = textInput("", "member");
+          const zsetMember = textInput("", "member");
+          const zsetScore = textInput("0", "0, 1.5, +inf, -inf");
+          const streamId = textInput("*", "* or 1710000000000-0");
+          const streamFields = el2("div");
+          const readStreamFields = streamFieldsEditor(streamFields);
+          const sections = new Map;
+          const addSection = (kind, nodes) => {
+            const section = el2("div", "redis-operation-form");
+            section.append(...nodes);
+            sections.set(kind, section);
+            body.appendChild(section);
+          };
+          addSection("string", [field2("String value", stringValue)]);
+          addSection("hash", [field2("Field", hashField), field2("Value", hashValue)]);
+          addSection("list", [field2("First list value", listValue)]);
+          addSection("set", [field2("Member", setMember)]);
+          addSection("zset", [field2("Member", zsetMember), field2("Score", zsetScore)]);
+          addSection("stream", [field2("Entry ID", streamId), field2("Fields", streamFields)]);
+          const paint = () => {
+            for (const [kind, section] of sections)
+              section.style.display = kind === type ? "" : "none";
+          };
+          typeInput.addEventListener("change", () => {
+            type = typeInput.value;
+            paint();
+          });
+          paint();
+          setTimeout(() => key.focus(), 30);
+          return () => {
+            if (!key.value.length)
+              throw new Error("Redis key is required.");
+            const operation = { op: "create", key: key.value, type, ttl: readTtl(ttl.value) };
+            if (type === "string")
+              operation.value = stringValue.value;
+            else if (type === "hash")
+              operation.entries = [{ field: hashField.value, value: hashValue.value }];
+            else if (type === "list")
+              operation.entries = [{ value: listValue.value }];
+            else if (type === "set")
+              operation.entries = [{ member: setMember.value }];
+            else if (type === "zset") {
+              if (!zsetScore.value.trim())
+                throw new Error("Sorted-set score is required.");
+              operation.entries = [{ member: zsetMember.value, score: zsetScore.value.trim() }];
+            } else {
+              operation.entries = [{ id: streamId.value.trim() || "*", fields: readStreamFields() }];
+            }
+            return operation;
+          };
+        }
+      });
+    }
+    function openKey({ connection, key, type, onListRefresh }) {
+      const wrap = el2("div", "sheetwrap");
+      const sheet = el2("div", "sheet redis-key-editor");
+      const header = el2("header");
+      const title = el2("h3", null, `Redis ${type} key`);
+      const closeButton = el2("button", "iconbtn", "✕");
+      closeButton.title = "Close Key Editor";
+      header.append(title, closeButton);
+      const body = el2("div", "sbody");
+      const footer = el2("footer");
+      sheet.append(header, body, footer);
+      wrap.appendChild(sheet);
+      let snapshot = null;
+      let loading = false;
+      let busy = false;
+      let closed = false;
+      let errorText2 = "";
+      let limit = 500;
+      let valueLimit = 262144;
+      let limitDraft = String(limit);
+      let valueLimitDraft = String(valueLimit);
+      let ttlDraft = "";
+      const locked = () => busy || loading;
+      function close() {
+        if (busy || closed)
+          return;
+        closed = true;
+        wrap.remove();
+        document.removeEventListener("keydown", onKey, true);
+      }
+      closeButton.addEventListener("click", close);
+      wrap.addEventListener("mousedown", (event) => {
+        if (event.target === wrap)
+          close();
+      });
+      const onKey = (event) => {
+        if (document.querySelector(".overlay"))
+          return;
+        if (event.key === "Escape") {
+          event.stopPropagation();
+          close();
+        }
+      };
+      document.addEventListener("keydown", onKey, true);
+      async function load() {
+        if (closed)
+          return;
+        loading = true;
+        errorText2 = "";
+        render();
+        try {
+          const next = await svc("GET", "/redis/key", {
+            query: { connection, key, type, limit: String(limit), valueLimit: String(valueLimit) }
+          });
+          if (closed)
+            return;
+          snapshot = next;
+          ttlDraft = next.ttl > 0 ? String(next.ttl) : "";
+        } catch (error) {
+          if (!closed) {
+            snapshot = null;
+            errorText2 = error.message;
+          }
+        } finally {
+          if (!closed) {
+            loading = false;
+            render();
+          }
+        }
+      }
+      async function runDirect(operation, { success = "Redis operation applied.", removeKey = false, refreshList = false } = {}) {
+        if (locked() || closed)
+          return;
+        busy = true;
+        errorText2 = "";
+        render();
+        try {
+          await svc("POST", "/redis/operation", { body: { connection, operation } });
+          toast("success", success);
+          if (removeKey) {
+            busy = false;
+            close();
+            await onListRefresh?.();
+            return;
+          }
+          await load();
+          if (refreshList)
+            await onListRefresh?.();
+        } catch (error) {
+          if (!closed) {
+            errorText2 = error.message;
+            toast("error", error.message);
+          }
+        } finally {
+          if (!closed) {
+            busy = false;
+            render();
+          }
+        }
+      }
+      function mutation(options) {
+        if (locked() || !snapshot)
+          return;
+        return operationDialog({
+          connection,
+          ...options,
+          onSuccess: async () => {
+            await load();
+          }
+        });
+      }
+      function editString() {
+        const original = snapshot;
+        mutation({
+          title: `Edit string — ${key}`,
+          primary: "Save string",
+          success: "String value updated.",
+          build: (form) => {
+            const value = textArea(original.value, "Redis string value");
+            form.appendChild(field2("Full string value", value));
+            setTimeout(() => value.focus(), 30);
+            return () => ({ op: "string.set", key, expectedValue: original.value, value: value.value });
+          }
+        });
+      }
+      function hashForm(entry = null) {
+        const original = snapshot;
+        mutation({
+          title: entry ? `Edit hash field — ${entry.field}` : `Add hash field — ${key}`,
+          primary: entry ? "Save field" : "Add field",
+          success: entry ? "Hash field updated." : "Hash field added.",
+          build: (form) => {
+            const name = textInput(entry?.field ?? "", "field");
+            if (entry)
+              name.disabled = true;
+            const value = textArea(entry?.value ?? "", "value");
+            form.append(field2("Field", name), field2("Value", value));
+            setTimeout(() => (entry ? value : name).focus(), 30);
+            return () => entry ? { op: "hash.update", key, field: entry.field, expectedValue: entry.value, value: value.value } : { op: "hash.add", key, field: name.value, value: value.value };
+          }
+        });
+      }
+      function listForm(entry = null, insert = false) {
+        const original = snapshot;
+        const isInsert = insert || !entry;
+        mutation({
+          title: isInsert ? `Insert list value — ${key}` : `Edit list index ${entry.index} — ${key}`,
+          primary: isInsert ? "Insert value" : "Save value",
+          success: isInsert ? "List value inserted." : "List value updated.",
+          build: (form) => {
+            const index = textInput(String(isInsert ? entry?.index ?? original.total : entry.index), "0");
+            if (!isInsert)
+              index.disabled = true;
+            const value = textArea(isInsert ? "" : entry.value, "value");
+            form.append(field2("Zero-based index", index), field2("Value", value));
+            form.appendChild(el2("div", "typed-note", isInsert ? `Expected list length: ${original.total}. Inserting before an existing item also checks its exact current value.` : "The exact value at this index is checked before updating."));
+            setTimeout(() => value.focus(), 30);
+            return () => {
+              if (isInsert) {
+                const at = readPositiveInteger(index.value, "List index", original.total);
+                const operation = { op: "list.insert", key, index: at, value: value.value, expectedLength: original.total };
+                if (at < original.total) {
+                  const pivot = original.entries[at];
+                  if (!pivot || pivot.truncated)
+                    throw new Error("The insertion pivot is unavailable or truncated. Reload a complete snapshot first.");
+                  operation.expectedValue = pivot.value;
+                }
+                return operation;
+              }
+              return { op: "list.update", key, index: entry.index, expectedValue: entry.value, value: value.value };
+            };
+          }
+        });
+      }
+      function setForm(entry = null) {
+        mutation({
+          title: entry ? `Replace set member — ${key}` : `Add set member — ${key}`,
+          primary: entry ? "Replace member" : "Add member",
+          success: entry ? "Set member replaced." : "Set member added.",
+          build: (form) => {
+            const member = textInput(entry?.member ?? "", "member");
+            form.appendChild(field2(entry ? "New member" : "Member", member));
+            setTimeout(() => member.focus(), 30);
+            return () => entry ? { op: "set.replace", key, member: entry.member, newMember: member.value } : { op: "set.add", key, member: member.value };
+          }
+        });
+      }
+      function zsetForm(entry = null, rename = false) {
+        mutation({
+          title: entry ? `${rename ? "Rename" : "Edit score"} — ${entry.member}` : `Add sorted-set member — ${key}`,
+          primary: entry ? "Save member" : "Add member",
+          success: entry ? "Sorted-set member updated." : "Sorted-set member added.",
+          build: (form) => {
+            const member = textInput(rename || !entry ? entry?.member ?? "" : entry.member, "member");
+            if (entry && !rename)
+              member.disabled = true;
+            const score = textInput(entry?.score ?? "0", "0, 1.5, +inf, -inf");
+            if (entry && rename) {
+              form.append(field2("New member", member), field2("Score", score));
+            } else {
+              form.append(field2("Member", member), field2("Score", score));
+            }
+            setTimeout(() => (rename || !entry ? member : score).focus(), 30);
+            return () => {
+              if (!score.value.trim())
+                throw new Error("Sorted-set score is required.");
+              if (!entry)
+                return { op: "zset.add", key, member: member.value, score: score.value.trim() };
+              if (rename)
+                return {
+                  op: "zset.replace",
+                  key,
+                  member: entry.member,
+                  newMember: member.value,
+                  expectedScore: String(entry.score),
+                  score: score.value.trim()
+                };
+              return { op: "zset.score", key, member: entry.member, expectedScore: String(entry.score), score: score.value.trim() };
+            };
+          }
+        });
+      }
+      function streamAppend() {
+        mutation({
+          title: `Append stream entry — ${key}`,
+          primary: "Append entry",
+          success: "Stream entry appended.",
+          build: (form) => {
+            const id = textInput("*", "* or 1710000000000-0");
+            const fields = el2("div");
+            const readFields = streamFieldsEditor(fields);
+            form.append(field2("Entry ID", id), field2("Fields", fields));
+            form.appendChild(el2("div", "typed-note", "Stream entries are append-only in this editor. Existing entries can be deleted but never modified in place."));
+            setTimeout(() => id.focus(), 30);
+            return () => ({ op: "stream.add", key, id: id.value.trim() || "*", fields: readFields() });
+          }
+        });
+      }
+      async function deleteEntry(entry) {
+        if (locked() || !snapshot)
+          return;
+        const current = snapshot;
+        let operation;
+        let subject;
+        if (current.type === "hash") {
+          operation = { op: "hash.delete", key, field: entry.field, expectedValue: entry.value };
+          subject = `hash field “${entry.field}”`;
+        } else if (current.type === "list") {
+          operation = { op: "list.delete", key, index: entry.index, expectedValue: entry.value };
+          subject = `list index ${entry.index}`;
+        } else if (current.type === "set") {
+          operation = { op: "set.remove", key, member: entry.member };
+          subject = "this set member";
+        } else if (current.type === "zset") {
+          operation = { op: "zset.remove", key, member: entry.member, expectedScore: String(entry.score) };
+          subject = `sorted-set member “${entry.member}”`;
+        } else {
+          operation = { op: "stream.delete", key, id: entry.id };
+          subject = `stream entry ${entry.id}`;
+        }
+        if (!await confirmDialog(`Delete ${subject} from Redis key “${key}”?`, { yes: "Delete" }))
+          return;
+        const removesEmptyKey = current.total === 1 && ["hash", "list", "set", "zset"].includes(current.type);
+        await runDirect(operation, {
+          success: removesEmptyKey ? "Redis entry deleted; refreshing the key list." : "Redis entry deleted.",
+          removeKey: removesEmptyKey
+        });
+      }
+      function renderEntry(entry) {
+        const box = el2("div", "redis-entry");
+        const head = el2("div", "redis-entry-head");
+        let label;
+        let value;
+        if (snapshot.type === "hash") {
+          label = entry.field;
+          value = entry.value;
+        } else if (snapshot.type === "list") {
+          label = `index ${entry.index}`;
+          value = entry.value;
+        } else if (snapshot.type === "set") {
+          label = "member";
+          value = entry.member;
+        } else if (snapshot.type === "zset") {
+          label = `score ${entry.score}`;
+          value = entry.member;
+        } else {
+          label = entry.id;
+          value = entry.fields.map((item) => `${item.field} = ${item.value}`).join(`
+`);
+        }
+        head.appendChild(el2("span", "redis-entry-title", label));
+        const actions = el2("div", "redis-entry-actions");
+        const stream = snapshot.type === "stream";
+        const editable = !stream && snapshot.writable && !entry.truncated && !locked();
+        const reason = snapshot.truncated && !stream ? "Reload a complete, untruncated snapshot before editing." : entry.truncated && !stream ? "This entry is truncated and cannot be edited safely." : "";
+        if (!stream) {
+          const editLabel = snapshot.type === "set" ? "Replace" : snapshot.type === "zset" ? "Score" : "Edit";
+          const editHandler = snapshot.type === "hash" ? () => hashForm(entry) : snapshot.type === "list" ? () => listForm(entry) : snapshot.type === "set" ? () => setForm(entry) : () => zsetForm(entry);
+          actions.appendChild(action(editLabel, editHandler, { enabled: editable, title: reason }));
+          if (snapshot.type === "list")
+            actions.appendChild(action("Insert before", () => listForm(entry, true), { enabled: editable, title: reason }));
+          if (snapshot.type === "zset")
+            actions.appendChild(action("Rename", () => zsetForm(entry, true), { enabled: editable, title: reason }));
+        }
+        const removable = stream ? !locked() : editable;
+        actions.appendChild(action("Delete", () => deleteEntry(entry), { kind: "danger", enabled: removable, title: reason }));
+        head.appendChild(actions);
+        box.appendChild(head);
+        const pre = el2("pre", `redis-entry-value${value === "" ? " empty" : ""}`, value === "" ? "(empty string)" : value);
+        box.appendChild(pre);
+        if (entry.truncated)
+          box.appendChild(el2("div", "redis-warning", stream ? "Some field values are truncated. Append and delete by entry ID remain available; field content is read-only." : "This value is truncated. Its edit and delete actions are disabled to prevent data loss."));
+        return box;
+      }
+      function renderSnapshot() {
+        const meta = el2("dl", "redis-key-meta");
+        meta.append(el2("dt", null, "Key"), el2("dd", null, snapshot.key));
+        meta.append(el2("dt", null, "Type"), el2("dd", null, snapshot.type));
+        meta.append(el2("dt", null, "TTL"), el2("dd", null, snapshot.ttl === -1 ? "No expiry (-1)" : `${snapshot.ttl} seconds`));
+        body.appendChild(meta);
+        const limits = el2("div", "redis-section");
+        const limitHead = el2("div", "redis-section-head");
+        limitHead.appendChild(el2("h4", null, "Snapshot read limits"));
+        limits.appendChild(limitHead);
+        const readLimits = el2("div", "redis-read-limits");
+        const limitInput = textInput(limitDraft, "1–500");
+        const valueInput = textInput(valueLimitDraft, "1–1000000");
+        limitInput.addEventListener("input", () => {
+          limitDraft = limitInput.value;
+        });
+        valueInput.addEventListener("input", () => {
+          valueLimitDraft = valueInput.value;
+        });
+        const reload = action("Reload", async () => {
+          if (locked())
+            return;
+          try {
+            const nextLimit = readPositiveInteger(limitDraft, "Entry limit", 500);
+            const nextValueLimit = readPositiveInteger(valueLimitDraft, "Value byte limit", 1e6);
+            if (nextLimit < 1 || nextValueLimit < 1)
+              throw new Error("Read limits must be positive.");
+            limit = nextLimit;
+            valueLimit = nextValueLimit;
+            await load();
+          } catch (error) {
+            errorText2 = error.message;
+            render();
+          }
+        }, { enabled: !locked() });
+        readLimits.append(field2("Entries (max 500)", limitInput), field2("Value bytes (max 1,000,000)", valueInput), reload);
+        limits.appendChild(readLimits);
+        body.appendChild(limits);
+        const ttlSection = el2("div", "redis-section");
+        const ttlHead = el2("div", "redis-section-head");
+        ttlHead.appendChild(el2("h4", null, "Expiration"));
+        ttlSection.appendChild(ttlHead);
+        const ttlRow = el2("div", "redis-ttl-row");
+        const ttlInput = textInput(ttlDraft, "No expiry");
+        ttlInput.disabled = locked();
+        ttlInput.addEventListener("input", () => {
+          ttlDraft = ttlInput.value;
+        });
+        const setTtl = action("Set expiry", () => {
+          try {
+            const ttl = readTtl(ttlInput.value);
+            if (ttl === null)
+              throw new Error("Enter a positive TTL, or use Remove expiry.");
+            runDirect({ op: "ttl", key, ttl }, { success: "Redis TTL updated.", refreshList: true });
+          } catch (error) {
+            errorText2 = error.message;
+            render();
+          }
+        }, { enabled: !locked() });
+        const persist = action("Remove expiry", () => runDirect({ op: "ttl", key, ttl: null }, { success: "Redis expiry removed.", refreshList: true }), {
+          enabled: !locked() && snapshot.ttl !== -1,
+          title: snapshot.ttl === -1 ? "This key already has no expiry." : "Keep the key until it is deleted."
+        });
+        persist.classList.add("persist");
+        ttlRow.append(field2("TTL seconds", ttlInput), setTtl, persist);
+        ttlSection.appendChild(ttlRow);
+        ttlSection.appendChild(el2("div", "redis-section-note", "TTL changes apply to the key's current state, not only the loaded snapshot."));
+        body.appendChild(ttlSection);
+        if (snapshot.truncated) {
+          const detail = snapshot.entriesTruncated ? `Showing ${snapshot.returned} of ${snapshot.total} entries. Increase the entry limit and reload.` : "One or more values are truncated. Increase the value byte limit and reload.";
+          body.appendChild(el2("div", "redis-warning", `${detail} ${snapshot.type === "stream" ? "Stream append/delete remain available." : "All value mutations are disabled until the snapshot is complete."} The service caps reads at 500 entries and 1,000,000 bytes per value.`));
+        }
+        if (snapshot.type === "string") {
+          const section2 = el2("div", "redis-section");
+          const head2 = el2("div", "redis-section-head");
+          head2.appendChild(el2("h4", null, "String value"));
+          head2.appendChild(action("Edit string", editString, {
+            kind: "primary",
+            enabled: snapshot.writable && !snapshot.truncated && !locked(),
+            title: snapshot.truncated ? "A truncated string cannot be overwritten. Increase the byte limit first." : ""
+          }));
+          section2.appendChild(head2);
+          section2.appendChild(el2("pre", `redis-entry-value${snapshot.value === "" ? " empty" : ""}`, snapshot.value === "" ? "(empty string)" : snapshot.value));
+          body.appendChild(section2);
+          return;
+        }
+        const section = el2("div", "redis-section");
+        const head = el2("div", "redis-section-head");
+        const titles = { hash: "Hash fields", list: "List values", set: "Set members", zset: "Sorted-set members", stream: "Stream entries" };
+        head.appendChild(el2("h4", null, `${titles[snapshot.type]} · ${snapshot.returned}/${snapshot.total}`));
+        const addLabels = { hash: "Add field", list: "Append / insert", set: "Add member", zset: "Add member", stream: "Append entry" };
+        const addHandlers = { hash: () => hashForm(), list: () => listForm(), set: () => setForm(), zset: () => zsetForm(), stream: streamAppend };
+        const canAdd = snapshot.type === "stream" ? !locked() : snapshot.writable && !locked();
+        head.appendChild(action(addLabels[snapshot.type], addHandlers[snapshot.type], {
+          kind: "primary",
+          enabled: canAdd,
+          title: !canAdd && snapshot.type !== "stream" ? "Reload a complete, untruncated snapshot before structural edits." : ""
+        }));
+        section.appendChild(head);
+        if (snapshot.type === "stream")
+          section.appendChild(el2("div", "redis-section-note", "Append and delete only. In-place stream edits and delete/recreate shortcuts are intentionally unavailable."));
+        if (!snapshot.entries.length)
+          section.appendChild(el2("div", "empty", "This key has no entries."));
+        else
+          snapshot.entries.forEach((entry) => section.appendChild(renderEntry(entry)));
+        body.appendChild(section);
+      }
+      function render() {
+        if (closed)
+          return;
+        title.textContent = `Redis ${snapshot?.type ?? type} key`;
+        closeButton.disabled = busy;
+        body.innerHTML = "";
+        footer.innerHTML = "";
+        if (loading)
+          body.appendChild(el2("div", "busy", "Loading an editor-safe Redis snapshot…"));
+        else if (!snapshot)
+          body.appendChild(el2("div", "empty", "The key snapshot is not available."));
+        else
+          renderSnapshot();
+        if (errorText2) {
+          const error = el2("div", "redis-error", errorText2);
+          error.setAttribute("role", "alert");
+          body.appendChild(error);
+          if (!snapshot && !loading)
+            body.appendChild(action("Retry", load, { kind: "primary" }));
+        }
+        const del = action("Delete key", async () => {
+          if (locked() || !snapshot)
+            return;
+          if (!await confirmDialog(`Delete Redis ${snapshot.type} key “${key}” and all of its current values? This operation is not limited to the loaded snapshot.`, { yes: "Delete key" }))
+            return;
+          await runDirect({ op: "delete", key }, { success: "Redis key deleted.", removeKey: true });
+        }, { kind: "danger", enabled: !!snapshot && !locked() });
+        const spacer = el2("span", "spacer");
+        const closeFooterButton = action("Close", close, { enabled: !busy });
+        footer.append(del, spacer, closeFooterButton);
+      }
+      document.getElementById("root").appendChild(wrap);
+      render();
+      load();
+      return { close, reload: load };
+    }
+    return { openCreate, openKey };
+  }
+
   // src/panel/main.js
   var host = connectHost();
 
@@ -1853,7 +2604,7 @@ ${GUEST_UI_LOOK_CSS}`;
   var currentKind = () => currentConnection()?.kind ?? "postgres";
   var isPostgres = () => currentKind() === "postgres";
   var objectKindLabel = (kind) => ({ view: "VIEW", matview: "MV", collection: "COLL", keys: "KEYS", partitioned: "PART" })[kind];
-  var el2 = (tag, cls, text) => {
+  var el3 = (tag, cls, text) => {
     const node = document.createElement(tag);
     if (cls)
       node.className = cls;
@@ -1921,6 +2672,7 @@ ${GUEST_UI_LOOK_CSS}`;
   var uuidShort = (s) => s.length > 16 ? `${s.slice(0, 8)}…${s.slice(-6)}` : s;
   var CSS2 = `
 ${GUEST_UI_LOOK_CSS}
+${REDIS_EDITOR_CSS}
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body { font: 12px/1.4 var(--oc-font, system-ui, sans-serif); color: var(--oc-fg, #eee); background: var(--oc-bg, #1e1e1e); }
@@ -2199,6 +2951,52 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
   font: 12px/1.5 var(--oc-mono, ui-monospace, monospace); resize: vertical; min-height: 72px;
 }
 .dialog textarea:focus { outline: 1px solid var(--oc-focus, #4c8dff); }
+.dialog-body { display: contents; }
+.dialog.typed-dialog { max-width: 560px; padding: 0; gap: 0; overflow: hidden; }
+.typed-dialog > h3 { padding: 14px 16px 11px; border-bottom: 1px solid var(--oc-border, #333); }
+.typed-dialog .dialog-body { display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow: auto; padding: 14px 16px; }
+.typed-dialog .acts { flex: none; padding: 10px 16px; border-top: 1px solid var(--oc-border, #333); background: var(--oc-elevated, #262626); }
+.typed-field { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.typed-field-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.typed-field-name { color: var(--oc-fg, #eee); font: 600 12px var(--oc-mono, ui-monospace, monospace); overflow: hidden; text-overflow: ellipsis; }
+.typed-field-type, .typed-constraint { flex: none; color: var(--oc-muted, #999); font: 9.5px var(--oc-mono, ui-monospace, monospace); padding: 1px 5px; border: 1px solid var(--oc-border, #3a3a3a); border-radius: 4px; }
+.typed-constraint { color: var(--oc-warning, #d29922); }
+.typed-modes { display: flex; gap: 2px; align-self: flex-start; padding: 2px; background: var(--oc-bg, #1e1e1e); border: 1px solid var(--oc-border, #333); border-radius: 6px; }
+.typed-modes button { border: 0; border-radius: 4px; padding: 3px 9px; background: transparent; color: var(--oc-muted, #999); cursor: pointer; font: inherit; font-size: 10px; }
+.typed-modes button.on { color: var(--oc-fg, #eee); background: var(--oc-hover, #363636); box-shadow: 0 1px 2px rgb(0 0 0 / .25); }
+.typed-input-row { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.typed-input-row > input, .typed-input-row > textarea { flex: 1; min-width: 0; }
+.dialog .typed-input-row input[type=date], .dialog .typed-input-row input[type=time], .dialog .typed-input-row input[type=datetime-local], .dialog .typed-input-row select {
+  padding: 5px 8px; border-radius: var(--oc-radius, 8px); border: 1px solid var(--oc-border, #333);
+  background: var(--oc-bg, #1e1e1e); color: var(--oc-fg, #eee); font: 12px/1.4 var(--oc-mono, ui-monospace, monospace); color-scheme: dark;
+}
+.typed-input-row input:disabled, .typed-input-row textarea:disabled, .typed-input-row select:disabled { opacity: .48; cursor: not-allowed; }
+.typed-tools { display: flex; gap: 5px; flex-wrap: wrap; }
+.typed-tools .iconbtn { flex: none; }
+.typed-preview { color: var(--oc-muted, #999); font: 10px/1.45 var(--oc-mono, ui-monospace, monospace); word-break: break-all; }
+.typed-preview strong { color: var(--oc-primary-text, #9dc1ff); font-weight: 500; }
+.typed-error { color: var(--oc-error-text, #f88); font-size: 11px; min-height: 0; }
+.typed-note { color: var(--oc-muted, #999); font-size: 10.5px; line-height: 1.5; }
+.typed-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.typed-form-grid .typed-field.wide { grid-column: 1 / -1; }
+@media (max-width: 560px) { .typed-form-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* MongoDB canonical document editing */
+.dialog.document-dialog { max-width: 680px; }
+.document-tabs { display: flex; gap: 3px; align-self: flex-start; padding: 2px; border: 1px solid var(--oc-border, #333); border-radius: 6px; background: var(--oc-bg, #1e1e1e); }
+.document-tabs button { border: 0; border-radius: 4px; padding: 4px 12px; background: transparent; color: var(--oc-muted, #999); cursor: pointer; font: inherit; font-size: 10.5px; }
+.document-tabs button.on { color: var(--oc-fg, #eee); background: var(--oc-hover, #363636); }
+.document-json { min-height: 300px; max-height: 50vh; width: 100%; }
+.document-fields { display: flex; flex-direction: column; gap: 11px; }
+.document-fields .typed-field { padding-bottom: 10px; border-bottom: 1px solid color-mix(in srgb, var(--oc-border, #333) 60%, transparent); }
+.document-fields .typed-field:last-child { border-bottom: 0; }
+.document-new-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; align-items: end; padding-top: 4px; }
+.document-new-field label { min-width: 0; }
+.document-review { max-height: 50vh; overflow: auto; }
+.document-review pre { margin: 4px 0 0; max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 10px/1.45 var(--oc-mono, ui-monospace, monospace); }
+.grid td.missing { color: var(--oc-subtle, #666); font-style: italic; }
+.grid tr.openable { cursor: pointer; }
+@media (max-width: 560px) { .document-json { min-height: 240px; } }
 
 /* pending review */
 .review { width: 100%; border-collapse: collapse; font: 11.5px/1.5 var(--oc-mono, ui-monospace, monospace); }
@@ -2224,7 +3022,7 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
 .sheet .srow .sv { font: 12px/1.5 var(--oc-mono, ui-monospace, monospace); white-space: pre-wrap; word-break: break-word; }
 .sheet .srow .sv.clickable { cursor: pointer; color: var(--oc-primary-text, #9dc1ff); }
 .sheet .srow .sv.null { color: var(--oc-subtle, #666); font-style: italic; }
-.sheet footer { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--oc-border, #2a2a2a); }
+.sheet footer { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px 12px; border-top: 1px solid var(--oc-border, #2a2a2a); }
 
 /* menu */
 .menu {
@@ -2297,39 +3095,50 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
 `;
   function dialog({ title, build, actions, className = "", isBusy = () => false }) {
     return new Promise((resolve) => {
-      const overlay = el2("div", "overlay");
-      const box = el2("div", `dialog${className ? ` ${className}` : ""}`);
-      box.appendChild(el2("h3", null, title));
+      const overlay = el3("div", "overlay");
+      const box = el3("div", `dialog${className ? ` ${className}` : ""}`);
+      box.appendChild(el3("h3", null, title));
       const done = (value) => {
         overlay.remove();
         document.removeEventListener("keydown", onKey, true);
         resolve(value);
       };
-      const body = el2("div");
-      body.style.display = "contents";
+      const body = el3("div", "dialog-body");
       if (build)
         build(body, done);
       box.appendChild(body);
-      const acts = el2("div", "acts");
-      for (const action of actions) {
-        const btn = el2("button", `btn ${action.kind ?? ""}`, action.label);
+      const acts = el3("div", "acts");
+      const actionButtons = [];
+      for (const action2 of actions) {
+        const btn = el3("button", `btn ${action2.kind ?? ""}`, action2.label);
         btn.addEventListener("click", async () => {
-          if (action.onClick) {
-            const result = await action.onClick(done);
+          if (action2.onClick) {
+            const result = await action2.onClick(done);
             if (result === false)
               return;
           } else {
-            done(action.value);
+            done(action2.value);
           }
         });
+        actionButtons.push({ action: action2, btn });
         acts.appendChild(btn);
       }
       box.appendChild(acts);
       const onKey = (event) => {
+        const overlays = document.querySelectorAll(".overlay");
+        if (overlays.length && overlays[overlays.length - 1] !== overlay)
+          return;
         if (event.key === "Escape") {
           event.stopPropagation();
           if (!isBusy())
             done(null);
+        } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+          const submit = actionButtons.find(({ action: action2, btn }) => action2.shortcut && !btn.disabled);
+          if (submit && !isBusy()) {
+            event.preventDefault();
+            event.stopPropagation();
+            submit.btn.click();
+          }
         }
       };
       document.addEventListener("keydown", onKey, true);
@@ -2343,24 +3152,25 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
   }
   var confirmDialog = (text, { danger = true, yes = "Run" } = {}) => dialog({
     title: "Confirmation",
-    build: (body) => body.appendChild(el2("p", null, text)),
+    build: (body) => body.appendChild(el3("p", null, text)),
     actions: [
       { label: "Cancel", value: false },
-      { label: yes, value: true, kind: danger ? "danger" : "primary" }
+      { label: yes, value: true, kind: danger ? "danger" : "primary", shortcut: true }
     ]
   }).then((v2) => v2 === true);
+  var redisPanel = createRedisPanel({ svc, dialog, confirmDialog, toast });
   function openMenu(anchor, items, { align = "right" } = {}) {
     closeMenu();
-    const menu = el2("div", "menu");
+    const menu = el3("div", "menu");
     for (const item of items) {
       if (item === "-") {
-        menu.appendChild(el2("div", "msep"));
+        menu.appendChild(el3("div", "msep"));
         continue;
       }
       if (item.checkbox !== undefined) {
-        const row2 = el2("div", "mi");
-        const label = el2("label");
-        const cb = el2("input");
+        const row2 = el3("div", "mi");
+        const label = el3("label");
+        const cb = el3("input");
         cb.type = "checkbox";
         cb.checked = item.checkbox;
         cb.addEventListener("change", () => item.onToggle(cb.checked));
@@ -2369,7 +3179,7 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
         menu.appendChild(row2);
         continue;
       }
-      const row = el2("div", `mi${item.disabled ? " dis" : ""}`, item.label);
+      const row = el3("div", `mi${item.disabled ? " dis" : ""}`, item.label);
       if (!item.disabled)
         row.addEventListener("click", () => {
           closeMenu();
@@ -2401,7 +3211,7 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
     }
   }
   function renderJsonHighlighted(text) {
-    const pre = el2("pre", "vv json");
+    const pre = el3("pre", "vv json");
     if (text.length > 200000) {
       pre.textContent = text;
       return pre;
@@ -2412,7 +3222,7 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
     while ((m = re.exec(text)) !== null) {
       if (m.index > last)
         pre.appendChild(document.createTextNode(text.slice(last, m.index)));
-      const span = el2("span");
+      const span = el3("span");
       if (m[1] !== undefined) {
         span.className = m[2] ? "jk" : "js";
         span.textContent = m[1];
@@ -2434,7 +3244,7 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
     return pre;
   }
   var plainPre = (text) => {
-    const pre = el2("pre", "vv");
+    const pre = el3("pre", "vv");
     pre.textContent = text;
     return pre;
   };
@@ -2497,7 +3307,7 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
   var statusEl = null;
   function showBanner(text, kind = "error") {
     hideBanner();
-    bannerEl = el2("div", `banner ${kind}`, text);
+    bannerEl = el3("div", `banner ${kind}`, text);
     workspaceEl.insertBefore(bannerEl, viewEl);
   }
   var hideBanner = () => {
@@ -2518,12 +3328,12 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
     return svg;
   }
   function buildChrome() {
-    const style = el2("style");
+    const style = el3("style");
     style.textContent = CSS2;
     document.head.appendChild(style);
-    const top = el2("div", "topbar");
-    const brand = el2("div", "brand");
-    const explorerToggle = el2("button", "brand-toggle");
+    const top = el3("div", "topbar");
+    const brand = el3("div", "brand");
+    const explorerToggle = el3("button", "brand-toggle");
     explorerToggle.appendChild(dbLogo());
     explorerToggle.title = "Show or hide Database Explorer";
     explorerToggle.setAttribute("aria-label", "Show or hide Database Explorer");
@@ -2531,32 +3341,32 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
       state.explorerVisible = !state.explorerVisible;
       root.classList.toggle("explorer-hidden", !state.explorerVisible);
     });
-    brand.append(explorerToggle, el2("span", "brand-name", "Database Explorer"));
+    brand.append(explorerToggle, el3("span", "brand-name", "Database Explorer"));
     top.appendChild(brand);
-    const path = el2("span", "app-path");
-    top.append(path, el2("span", "spacer"));
-    const actions = el2("div", "top-actions");
-    const pal = el2("button", "iconbtn", "⌘ K");
+    const path = el3("span", "app-path");
+    top.append(path, el3("span", "spacer"));
+    const actions = el3("div", "top-actions");
+    const pal = el3("button", "iconbtn", "⌘ K");
     pal.title = "Go to table (Ctrl/⌘+K)";
     pal.addEventListener("click", () => openPalette());
-    const gear = el2("button", "iconbtn", "⚙");
+    const gear = el3("button", "iconbtn", "⚙");
     gear.title = "Add connection";
     gear.setAttribute("aria-label", "Add connection");
     gear.addEventListener("click", () => connectionsDialog());
     actions.append(pal, gear);
     top.appendChild(actions);
     root.appendChild(top);
-    const workbench = el2("div", "workbench");
-    const sidebar = el2("aside", "sidebar");
-    const connection = el2("button", "connection-picker");
+    const workbench = el3("div", "workbench");
+    const sidebar = el3("aside", "sidebar");
+    const connection = el3("button", "connection-picker");
     connection.addEventListener("click", () => openConnectionMenu(connection));
     sidebar.appendChild(connection);
-    const explorerHead = el2("div", "explorer-head");
-    explorerHead.appendChild(el2("span", "section-title", "Database Explorer"));
-    const refresh = el2("button", "iconbtn", "⟳");
+    const explorerHead = el3("div", "explorer-head");
+    explorerHead.appendChild(el3("span", "section-title", "Database Explorer"));
+    const refresh = el3("button", "iconbtn", "⟳");
     refresh.title = "Refresh database schema";
     refresh.addEventListener("click", () => refreshTree());
-    const hide = el2("button", "iconbtn", "⟨");
+    const hide = el3("button", "iconbtn", "⟨");
     hide.title = "Hide Explorer";
     hide.addEventListener("click", () => {
       state.explorerVisible = false;
@@ -2564,17 +3374,17 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
     });
     explorerHead.append(refresh, hide);
     sidebar.appendChild(explorerHead);
-    treeEl = el2("div", "explorer-view");
+    treeEl = el3("div", "explorer-view");
     sidebar.appendChild(treeEl);
     workbench.appendChild(sidebar);
-    workspaceEl = el2("section", "workspace");
-    objectTabsEl = el2("div", "object-tabs");
-    workspaceTabsEl = el2("div", "workspace-tabs");
-    viewEl = el2("div", "view");
+    workspaceEl = el3("section", "workspace");
+    objectTabsEl = el3("div", "object-tabs");
+    workspaceTabsEl = el3("div", "workspace-tabs");
+    viewEl = el3("div", "view");
     workspaceEl.append(objectTabsEl, workspaceTabsEl, viewEl);
     workbench.appendChild(workspaceEl);
     root.appendChild(workbench);
-    statusEl = el2("div", "statusbar");
+    statusEl = el3("div", "statusbar");
     root.appendChild(statusEl);
     root._connection = connection;
     root._path = path;
@@ -2583,15 +3393,15 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
     const conn = state.conns.find((c) => c.id === state.connId);
     const picker = root._connection;
     picker.innerHTML = "";
-    const icon2 = el2("span", "dbicon");
+    const icon2 = el3("span", "dbicon");
     icon2.appendChild(dbLogo());
-    const copy = el2("span", "conn-copy");
-    copy.appendChild(el2("span", "conn-name", conn?.name ?? "Add connection"));
-    copy.appendChild(el2("span", "conn-detail", conn ? `${DB_TYPES[conn.kind]?.label ?? "PostgreSQL"} · ${conn.host}:${conn.port}/${conn.database}` : "PostgreSQL · MongoDB · Redis"));
+    const copy = el3("span", "conn-copy");
+    copy.appendChild(el3("span", "conn-name", conn?.name ?? "Add connection"));
+    copy.appendChild(el3("span", "conn-detail", conn ? `${DB_TYPES[conn.kind]?.label ?? "PostgreSQL"} · ${conn.host}:${conn.port}/${conn.database}` : "PostgreSQL · MongoDB · Redis"));
     picker.append(icon2, copy);
     if (conn)
-      picker.appendChild(el2("span", "online"));
-    picker.appendChild(el2("span", "chevron", "▼"));
+      picker.appendChild(el3("span", "online"));
+    picker.appendChild(el3("span", "chevron", "▼"));
     root._path.textContent = conn ? `${conn.database || conn.name}${state.table ? ` / ${state.table.schema}` : ""}` : "Database Explorer";
     root.classList.toggle("explorer-hidden", !state.explorerVisible);
     renderObjectTabs();
@@ -2616,14 +3426,14 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
     objectTabsEl.innerHTML = "";
     for (const table of state.openTables) {
       const active2 = state.tab === "tree" && state.mode === "data" && state.table === table;
-      const tab = el2("div", `objtab${active2 ? " on" : ""}`);
+      const tab = el3("div", `objtab${active2 ? " on" : ""}`);
       tab.tabIndex = 0;
       tab.setAttribute("role", "button");
       tab.title = `${table.schema}.${table.name}`;
-      tab.appendChild(el2("span", "objicon", "▦"));
-      tab.appendChild(el2("span", "objschema", `${table.schema}.`));
-      tab.appendChild(el2("span", "objname", table.name));
-      const close = el2("button", "objclose", "×");
+      tab.appendChild(el3("span", "objicon", "▦"));
+      tab.appendChild(el3("span", "objschema", `${table.schema}.`));
+      tab.appendChild(el3("span", "objname", table.name));
+      const close = el3("button", "objclose", "×");
       close.title = "Close tab";
       close.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -2638,11 +3448,11 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
       objectTabsEl.appendChild(tab);
     }
     if (state.sqlOpen && isPostgres()) {
-      const tab = el2("div", `objtab${state.tab === "sql" ? " on" : ""}`);
+      const tab = el3("div", `objtab${state.tab === "sql" ? " on" : ""}`);
       tab.tabIndex = 0;
       tab.setAttribute("role", "button");
-      tab.append(el2("span", "objicon", "›_"), el2("span", "objname", "console.sql"));
-      const close = el2("button", "objclose", "×");
+      tab.append(el3("span", "objicon", "›_"), el3("span", "objname", "console.sql"));
+      const close = el3("button", "objclose", "×");
       close.title = "Close console";
       close.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -2660,7 +3470,7 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
       objectTabsEl.appendChild(tab);
     }
     if (isPostgres()) {
-      const add = el2("button", "objtab new", "+");
+      const add = el3("button", "objtab new", "+");
       add.title = "New SQL console";
       add.addEventListener("click", () => openSqlConsole());
       objectTabsEl.appendChild(add);
@@ -2675,7 +3485,7 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
     ];
     for (const [view, label] of items) {
       const active2 = view === "sql" ? state.tab === "sql" : state.tab === "tree" && state.mode === "data" && state.tableView === view;
-      const button2 = el2("button", `wtab${active2 ? " on" : ""}`, label);
+      const button2 = el3("button", `wtab${active2 ? " on" : ""}`, label);
       if (view !== "sql" && !state.table) {
         button2.disabled = true;
         button2.title = "Select a table in Explorer first";
@@ -2691,7 +3501,7 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
       }
       workspaceTabsEl.appendChild(button2);
     }
-    workspaceTabsEl.appendChild(el2("span", "hint", "Ctrl/⌘+K — Find objects"));
+    workspaceTabsEl.appendChild(el3("span", "hint", "Ctrl/⌘+K — Find objects"));
   }
   function openSqlConsole() {
     if (!isPostgres()) {
@@ -2709,24 +3519,24 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
     statusEl.innerHTML = "";
     const conn = state.conns.find((c) => c.id === state.connId);
     if (conn) {
-      const s = el2("span", "s connection-status");
-      s.append(el2("span", "online"), document.createTextNode(conn.name));
+      const s = el3("span", "s connection-status");
+      s.append(el3("span", "online"), document.createTextNode(conn.name));
       statusEl.appendChild(s);
     }
     if (state.pgVersion)
-      statusEl.appendChild(el2("span", "s", `PG ${state.pgVersion}`));
+      statusEl.appendChild(el3("span", "s", `PG ${state.pgVersion}`));
     const sqlActive = state.tab === "sql";
     const ms = sqlActive ? state.sqlResult?.ms : state.table?.page?.ms;
     if (typeof ms === "number") {
-      const s = el2("span", `s${ms < 400 ? " ok" : ""}`);
+      const s = el3("span", `s${ms < 400 ? " ok" : ""}`);
       s.textContent = `${ms} ms`;
       statusEl.appendChild(s);
     }
     const total = sqlActive ? state.sqlResult?.rowCount : state.table?.page?.total;
     const unit = sqlActive || isPostgres() ? plural(total, "row") : currentKind() === "mongodb" ? plural(total, "document") : plural(total, "key");
     if (typeof total === "number")
-      statusEl.appendChild(el2("span", "s", `${fmtInt(total)} ${unit}`));
-    statusEl.appendChild(el2("span", "s end", sqlActive ? "SQL console" : state.tableView === "structure" ? "Schema" : "Ready"));
+      statusEl.appendChild(el3("span", "s", `${fmtInt(total)} ${unit}`));
+    statusEl.appendChild(el3("span", "s end", sqlActive ? "SQL console" : state.tableView === "structure" ? "Schema" : "Ready"));
   }
   function openPalette() {
     if (!state.schemas.length) {
@@ -2740,23 +3550,23 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
     }
     let filtered = items.slice(0, 50);
     let sel = 0;
-    const overlay = el2("div", "overlay");
-    const box = el2("div", "dialog pal");
+    const overlay = el3("div", "overlay");
+    const box = el3("div", "dialog pal");
     box.style.maxWidth = "460px";
-    const input = el2("input");
+    const input = el3("input");
     input.placeholder = "Table or schema…";
-    const list = el2("div", "plist");
+    const list = el3("div", "plist");
     box.append(input, list);
     overlay.appendChild(box);
     const paint = () => {
       list.innerHTML = "";
       filtered.forEach((item, i) => {
-        const row = el2("div", `pi${i === sel ? " sel" : ""}`);
-        row.appendChild(el2("span", null, `${item.schema}.${item.table.name}`));
+        const row = el3("div", `pi${i === sel ? " sel" : ""}`);
+        row.appendChild(el3("span", null, `${item.schema}.${item.table.name}`));
         const kindLabel = objectKindLabel(item.table.kind);
         if (kindLabel)
-          row.appendChild(el2("span", "pk", kindLabel));
-        const meta = el2("span", "pmeta");
+          row.appendChild(el3("span", "pk", kindLabel));
+        const meta = el3("span", "pmeta");
         meta.textContent = item.table.approxRows !== null && item.table.approxRows >= 0 ? `~${fmtCount(item.table.approxRows)}` : "";
         row.appendChild(meta);
         row.addEventListener("click", () => choose(i));
@@ -2769,7 +3579,7 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
         list.appendChild(row);
       });
       if (!filtered.length)
-        list.appendChild(el2("div", "empty", "No matches found."));
+        list.appendChild(el3("div", "empty", "No matches found."));
     };
     const applyFilter = () => {
       const q = input.value.trim().toLowerCase();
@@ -2855,15 +3665,26 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
   function pendingMarks() {
     const cells = new Set;
     const deleted = new Set;
+    const replaced = new Set;
     for (const [key, value] of state.pending) {
-      if (value.op === "delete")
+      if (value.op === "delete" || value.op === "mongo-delete")
         deleted.add(value.pkVal);
+      else if (value.op === "mongo-update") {
+        for (const field3 of value.changes.keys())
+          cells.add(`${value.pkVal}${SEP}${field3}`);
+      } else if (value.op === "mongo-replace")
+        replaced.add(value.pkVal);
       else
         cells.add(key);
     }
-    return { cells, deleted };
+    return { cells, deleted, replaced };
   }
   async function applyPendingDialog() {
+    if (currentKind() === "mongodb")
+      return applyMongoPendingDialog();
+    return applyPostgresPendingDialog();
+  }
+  async function applyPostgresPendingDialog() {
     const t = state.table;
     const page = t?.page;
     if (!t || !page || !page.pk || state.batchBusy)
@@ -2881,22 +3702,22 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
         title: `Apply ${ops.length} ${plural(ops.length, "change")} — ${t.schema}.${t.name}`,
         isBusy: () => applying,
         build: (body) => {
-          const table = el2("table", "review");
+          const table = el3("table", "review");
           for (const op of ops) {
-            const tr = el2("tr", op.op === "delete" ? "del" : "");
+            const tr = el3("tr", op.op === "delete" ? "del" : "");
             if (op.op === "delete") {
-              const td = el2("td", "c", `delete row ${page.pk} = ${op.pkVal}`);
+              const td = el3("td", "c", `delete row ${page.pk} = ${op.pkVal}`);
               td.colSpan = 3;
               tr.appendChild(td);
             } else {
-              tr.appendChild(el2("td", "c", `${page.pk}=${op.pkVal} · ${op.col}`));
-              tr.appendChild(el2("td", "o", op.old === null ? NULL_TEXT : esc(op.old)));
-              tr.appendChild(el2("td", "n", op.valNull ? NULL_TEXT : esc(op.now)));
+              tr.appendChild(el3("td", "c", `${page.pk}=${op.pkVal} · ${op.col}`));
+              tr.appendChild(el3("td", "o", op.old === null ? NULL_TEXT : esc(op.old)));
+              tr.appendChild(el3("td", "n", op.valNull ? NULL_TEXT : esc(op.now)));
             }
             table.appendChild(tr);
           }
           body.appendChild(table);
-          body.appendChild(el2("p", null, "All changes are applied in a single transaction: all or nothing."));
+          body.appendChild(el3("p", null, "All changes are applied in a single transaction: all or nothing."));
         },
         actions: [
           { label: "Discard all", kind: "danger", onClick: (done) => {
@@ -2980,11 +3801,16 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
       order,
       desc,
       marks = null,
-      sticky = false
+      sticky = false,
+      present = null,
+      rowIdentity = null,
+      onOpenRow = null,
+      inspectTitle = "Row inspector",
+      deleteTitle = "Delete row"
     } = opts;
     const idx = indices ?? columns.map((_, i) => i);
-    const wrap = el2("div", "gridwrap");
-    const table = el2("table", `grid${sticky ? " stick" : ""}`);
+    const wrap = el3("div", "gridwrap");
+    const table = el3("table", `grid${sticky ? " stick" : ""}`);
     const colgroup = document.createElement("colgroup");
     idx.forEach((sourceIndex, i) => {
       const col = document.createElement("col");
@@ -2999,11 +3825,11 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
       colgroup.appendChild(col);
     }
     table.appendChild(colgroup);
-    const headRow = el2("tr");
+    const headRow = el3("tr");
     columns.forEach((c, i) => {
-      const th = el2("th");
+      const th = el3("th");
       if (pk === c) {
-        th.appendChild(el2("span", null, "PK "));
+        th.appendChild(el3("span", null, "PK "));
         th.title = `${c} — primary key`;
       }
       th.appendChild(document.createTextNode(c));
@@ -3013,7 +3839,7 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
         th.title = th.title ? `${th.title} (${metaType})` : `${c} — ${metaType}`;
       }
       if (order === c)
-        th.appendChild(el2("span", "arr", desc ? "▼" : "▲"));
+        th.appendChild(el3("span", "arr", desc ? "▼" : "▲"));
       if (onSort && (!sortColumns || sortColumns.includes(c)))
         th.addEventListener("click", (event) => {
           if (event.target.classList.contains("rs"))
@@ -3021,7 +3847,7 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
           onSort(c);
         });
       if (onResize) {
-        const rs = el2("span", "rs");
+        const rs = el3("span", "rs");
         rs.addEventListener("mousedown", (event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -3045,24 +3871,32 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
       headRow.appendChild(th);
     });
     if (onDeleteRow || onInspect)
-      headRow.appendChild(el2("th"));
+      headRow.appendChild(el3("th"));
     table.appendChild(headRow);
-    rows.forEach((row) => {
-      const tr = el2("tr");
-      const pkVal = pkIndex >= 0 ? row[pkIndex] : null;
+    rows.forEach((row, rowIndex) => {
+      const tr = el3("tr");
+      const pkVal = rowIdentity ? rowIdentity(row, rowIndex) : pkIndex >= 0 ? row[pkIndex] : null;
       const isDel = marks?.deleted.has(String(pkVal));
       if (isDel)
         tr.classList.add("pending-del");
+      if (onOpenRow) {
+        tr.classList.add("openable");
+        tr.addEventListener("dblclick", (event) => {
+          if (!event.target.closest("button"))
+            onOpenRow(row, rowIndex);
+        });
+      }
       columns.forEach((c, i) => {
         const sourceIndex = idx[i];
         const value = row[sourceIndex];
-        const td = el2("td", value === null ? "null" : "");
+        const missing = present?.[rowIndex]?.[sourceIndex] === false;
+        const td = el3("td", missing ? "missing" : value === null ? "null" : "");
         const meta = columnMeta?.find((m) => m.name === c);
         const tclass = typeClass(meta?.type);
-        let display = value === null ? NULL_TEXT : esc(value);
+        let display = missing ? "missing" : value === null ? NULL_TEXT : esc(value);
         if (tclass === "bool" && value !== null) {
           const truthy = value === "t" || value === "true" || value === "1";
-          const pill = el2("span", `boolpill${truthy ? "" : " f"}`, truthy ? "✓ true" : "✗ false");
+          const pill = el3("span", `boolpill${truthy ? "" : " f"}`, truthy ? "✓ true" : "✗ false");
           td.appendChild(pill);
           td.classList.add("bool");
         } else if (tclass === "uuid" && value !== null) {
@@ -3074,38 +3908,42 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
         }
         if (tclass === "num")
           td.classList.add("num");
-        if (value !== null && !td.title)
+        if (missing)
+          td.title = "Missing field";
+        else if (value !== null && !td.title)
           td.title = display;
         const markKey = `${pkVal}${SEP}${c}`;
-        if (marks && pkVal !== null && marks.cells.has(markKey))
+        if (marks && pkVal !== null && (marks.cells.has(markKey) || marks.replaced.has(String(pkVal))))
           td.classList.add("pending");
-        const canEdit = editable && pk && c !== pk && onEditCell && !isDel;
-        if (value !== null && prettyValue(value)) {
+        const canEdit = editable && pk && pkVal !== null && c !== pk && onEditCell && !isDel;
+        if (onOpenRow) {
+          td.title = "Double-click to open Key Editor";
+        } else if (!missing && value !== null && prettyValue(value)) {
           td.classList.add("viewable");
           if (!td.classList.contains("uuid"))
             td.title = "Click to view value";
-          td.addEventListener("click", () => valueViewDialog(c, meta?.type, value, { onEdit: canEdit ? () => onEditCell(row, c) : undefined }));
+          td.addEventListener("click", () => valueViewDialog(c, meta?.type, value, { onEdit: canEdit ? () => onEditCell(row, c, rowIndex) : undefined }));
           if (canEdit)
-            td.addEventListener("dblclick", () => onEditCell(row, c));
+            td.addEventListener("dblclick", () => onEditCell(row, c, rowIndex));
         } else if (canEdit) {
           td.classList.add("editable");
-          td.addEventListener("dblclick", () => onEditCell(row, c));
+          td.addEventListener("dblclick", () => onEditCell(row, c, rowIndex));
         }
         tr.appendChild(td);
       });
       if ((onDeleteRow || onInspect) && pk) {
-        const td = el2("td", "rowact");
+        const td = el3("td", "rowact");
         if (onInspect) {
-          const inspect = el2("button", null, "⤢");
+          const inspect = el3("button", null, "⤢");
           inspect.classList.add("inspect");
-          inspect.title = "Row inspector";
-          inspect.addEventListener("click", () => onInspect(row));
+          inspect.title = inspectTitle;
+          inspect.addEventListener("click", () => onInspect(row, rowIndex));
           td.appendChild(inspect);
         }
         if (onDeleteRow) {
-          const del = el2("button", null, "✕");
-          del.title = "Delete row";
-          del.addEventListener("click", () => onDeleteRow(row));
+          const del = el3("button", null, "✕");
+          del.title = deleteTitle;
+          del.addEventListener("click", () => onDeleteRow(row, rowIndex));
           td.appendChild(del);
         }
         tr.appendChild(td);
@@ -3117,8 +3955,8 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
   }
   function renderTree() {
     treeEl.innerHTML = "";
-    const search = el2("div", "search");
-    const input = el2("input");
+    const search = el3("div", "search");
+    const input = el3("input");
     input.type = "text";
     input.placeholder = "Search objects…";
     input.value = state.filter;
@@ -3128,17 +3966,17 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
     });
     search.appendChild(input);
     treeEl.appendChild(search);
-    const list = el2("div", "scroll");
+    const list = el3("div", "scroll");
     treeEl.appendChild(list);
     treeEl._list = list;
-    const info = el2("div");
+    const info = el3("div");
     treeEl.insertBefore(info, list);
     treeEl._info = info;
     renderTreeList();
   }
   function renderSkeletons(container, n) {
     for (let i = 0;i < n; i++) {
-      const sk = el2("div", "sk");
+      const sk = el3("div", "sk");
       sk.style.width = `${55 + i * 37 % 40}%`;
       container.appendChild(sk);
     }
@@ -3151,16 +3989,16 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
     const filter = state.filter.trim().toLowerCase();
     const conn = state.conns.find((c) => c.id === state.connId);
     if (!state.conns.length) {
-      list.appendChild(el2("div", "empty", "No connections. Add PostgreSQL, MongoDB, or Redis using the ⚙ button."));
+      list.appendChild(el3("div", "empty", "No connections. Add PostgreSQL, MongoDB, or Redis using the ⚙ button."));
       return;
     }
     if (conn) {
-      const dbroot = el2("div", "dbroot");
-      const icon2 = el2("span", "dbicon");
+      const dbroot = el3("div", "dbroot");
+      const icon2 = el3("span", "dbicon");
       icon2.appendChild(dbLogo());
-      dbroot.append(icon2, el2("span", "online"), el2("span", "dbname", conn.database || conn.name));
+      dbroot.append(icon2, el3("span", "online"), el3("span", "dbname", conn.database || conn.name));
       if (state.treeReady)
-        dbroot.appendChild(el2("span", "dbcount", currentKind() === "mongodb" ? `${state.schemas.length} ${plural(state.schemas.length, "database")}` : currentKind() === "redis" ? "keys" : `${state.schemas.length} ${plural(state.schemas.length, "schema")}`));
+        dbroot.appendChild(el3("span", "dbcount", currentKind() === "mongodb" ? `${state.schemas.length} ${plural(state.schemas.length, "database")}` : currentKind() === "redis" ? "keys" : `${state.schemas.length} ${plural(state.schemas.length, "schema")}`));
       list.appendChild(dbroot);
     }
     if (!state.treeReady) {
@@ -3168,7 +4006,7 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
       return;
     }
     if (!state.schemas.length) {
-      list.appendChild(el2("div", "empty", currentKind() === "mongodb" ? "No databases or collections available." : "No user objects in this database."));
+      list.appendChild(el3("div", "empty", currentKind() === "mongodb" ? "No databases or collections available." : "No user objects in this database."));
       return;
     }
     let shownTables = 0;
@@ -3179,12 +4017,12 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
         continue;
       shownTables += tables.length;
       const open = !!filter || state.expanded.has(schema.name);
-      const block = el2("div", "schema" + (open ? " open" : ""));
-      const head = el2("div", "head");
-      head.appendChild(el2("span", "chev", "▸"));
-      head.appendChild(el2("span", "schemaicon", "▱"));
-      head.appendChild(el2("span", null, schema.name));
-      head.appendChild(el2("span", "count", `${tables.length}`));
+      const block = el3("div", "schema" + (open ? " open" : ""));
+      const head = el3("div", "head");
+      head.appendChild(el3("span", "chev", "▸"));
+      head.appendChild(el3("span", "schemaicon", "▱"));
+      head.appendChild(el3("span", null, schema.name));
+      head.appendChild(el3("span", "count", `${tables.length}`));
       head.addEventListener("click", () => {
         if (state.expanded.has(schema.name))
           state.expanded.delete(schema.name);
@@ -3196,13 +4034,13 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
       if (open) {
         for (const t of tables) {
           const active2 = state.tab === "tree" && state.mode === "data" && state.table?.schema === schema.name && state.table?.name === t.name;
-          const row = el2("div", `trow${active2 ? " on" : ""}`);
-          row.appendChild(el2("span", "tableicon", t.kind === "view" || t.kind === "matview" ? "◫" : "▦"));
-          row.appendChild(el2("span", "tname", t.name));
+          const row = el3("div", `trow${active2 ? " on" : ""}`);
+          row.appendChild(el3("span", "tableicon", t.kind === "view" || t.kind === "matview" ? "◫" : "▦"));
+          row.appendChild(el3("span", "tname", t.name));
           const kindLabel = objectKindLabel(t.kind);
           if (kindLabel)
-            row.appendChild(el2("span", "kind", kindLabel));
-          const meta = el2("span", "tmeta");
+            row.appendChild(el3("span", "kind", kindLabel));
+          const meta = el3("span", "tmeta");
           meta.textContent = t.approxRows !== null && t.approxRows >= 0 ? fmtCount(t.approxRows) : "";
           row.appendChild(meta);
           row.title = `${schema.name}.${t.name} — ${t.columns.length} ${plural(t.columns.length, "column")}${t.primaryKey ? `, PK: ${t.primaryKey}` : ", no PK"}`;
@@ -3213,7 +4051,7 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
       list.appendChild(block);
     }
     if (!shownTables)
-      list.appendChild(el2("div", "empty", "No matches found."));
+      list.appendChild(el3("div", "empty", "No matches found."));
   }
   var fmtCount = (n) => n >= 1e6 ? (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M" : n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, "") + "k" : String(n);
   var fmtInt = (n) => Number(n).toLocaleString("en-US");
@@ -3254,21 +4092,21 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
     ["text", "Text"]
   ];
   function seg(current, onPick) {
-    const box = el2("div", "seg");
+    const box = el3("div", "seg");
     for (const [value, label] of VIEW_MODES) {
-      const b = el2("button", value === current ? "on" : "", label);
+      const b = el3("button", value === current ? "on" : "", label);
       b.addEventListener("click", () => onPick(value));
       box.appendChild(b);
     }
     return box;
   }
   function buildPager(page) {
-    const pager = el2("div", "pager");
-    const prev = el2("button", "iconbtn", "‹");
-    const next = el2("button", "iconbtn", "›");
+    const pager = el3("div", "pager");
+    const prev = el3("button", "iconbtn", "‹");
+    const next = el3("button", "iconbtn", "›");
     const from = page.total === 0 ? 0 : page.offset + 1;
     const to = page.offset + page.rowCount;
-    pager.append(prev, el2("span", null, `${fmtInt(from)}–${fmtInt(to)} / ${fmtInt(page.total)}`), next);
+    pager.append(prev, el3("span", null, `${fmtInt(from)}–${fmtInt(to)} / ${fmtInt(page.total)}`), next);
     prev.disabled = page.offset <= 0;
     next.disabled = page.offset + page.rowCount >= page.total;
     prev.title = "Previous page";
@@ -3283,23 +4121,26 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
     if (!t)
       return renderWelcome();
     const connection = state.connId;
-    const bar = el2("div", "databar");
+    const bar = el3("div", "databar");
     const page = t.page;
-    const writable = isPostgres() && !page?.readOnly && !t.loading;
+    const pgWritable = isPostgres() && !page?.readOnly && !t.loading;
+    const mongoWritable = currentKind() === "mongodb" && !page?.readOnly && !t.loading && hasMongoSnapshots(page);
+    const redisReady = currentKind() === "redis" && !!page && !t.loading;
     if (page) {
       const n = pendingCount();
       if (n) {
-        const pend = el2("button", "iconbtn pend");
-        pend.append(el2("span", "dotp"), document.createTextNode(`${n} ${plural(n, "change")}`));
+        const pend = el3("button", "iconbtn pend");
+        const pendingUnit = currentKind() === "mongodb" ? "document" : "change";
+        pend.append(el3("span", "dotp"), document.createTextNode(`${n} ${plural(n, pendingUnit)}`));
         pend.title = "Review pending changes";
         pend.addEventListener("click", () => applyPendingDialog());
         bar.appendChild(pend);
-        const apply = el2("button", "btn warn", "Apply");
+        const apply = el3("button", "btn warn", "Apply");
         apply.addEventListener("click", () => applyPendingDialog());
         bar.appendChild(apply);
       }
-      if (writable) {
-        const insert = el2("button", "iconbtn", "＋ Row");
+      if (pgWritable) {
+        const insert = el3("button", "iconbtn", "＋ New row");
         if (page.pk)
           insert.addEventListener("click", () => insertDialog());
         else {
@@ -3307,8 +4148,19 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
           insert.title = "Only for tables with a primary key";
         }
         bar.appendChild(insert);
+      } else if (mongoWritable) {
+        const insert = el3("button", "iconbtn", "＋ New document");
+        insert.addEventListener("click", () => mongoDocumentDialog({ table: t, connection, insert: true }));
+        bar.appendChild(insert);
+      } else if (redisReady) {
+        const insert = el3("button", "iconbtn", "＋ New key");
+        insert.addEventListener("click", () => redisPanel.openCreate({
+          connection,
+          onCreated: () => refreshRedisTable(t, connection)
+        }));
+        bar.appendChild(insert);
       }
-      const filter = el2("button", `iconbtn${t.filter ? " active" : ""}`, "▽ Filter");
+      const filter = el3("button", `iconbtn${t.filter ? " active" : ""}`, "▽ Filter");
       filter.title = "Filter rows";
       filter.addEventListener("click", () => {
         if (!t.filter)
@@ -3317,17 +4169,17 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
         setTimeout(() => viewEl.querySelector(".fbar input")?.focus(), 0);
       });
       bar.appendChild(filter);
-      const more = el2("button", "iconbtn", "⋮");
+      const more = el3("button", "iconbtn", "⋮");
       more.title = "Columns, export, and copy";
       more.addEventListener("click", () => openDataMenu(more));
       bar.appendChild(more);
-      bar.appendChild(el2("span", "spacer"));
+      bar.appendChild(el3("span", "spacer"));
       bar.appendChild(seg(state.viewMode, (v2) => {
         state.viewMode = v2;
         render();
       }));
     }
-    const refresh = el2("button", "iconbtn", "⟳");
+    const refresh = el3("button", "iconbtn", "⟳");
     refresh.title = "Refresh data";
     refresh.addEventListener("click", () => reloadTable());
     bar.appendChild(refresh);
@@ -3335,36 +4187,55 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
     if (page && t.filter)
       viewEl.appendChild(buildFilterBar(page, t.filter));
     if (!page) {
-      const skel = el2("div");
+      const skel = el3("div");
       renderSkeletons(skel, 8);
       viewEl.appendChild(skel);
       return;
     }
     const marks = pendingMarks();
     const entries = visibleEntries(page);
+    const mongoModel = currentKind() === "mongodb" && hasMongoSnapshots(page) ? mongoViewModel(page) : null;
+    const viewPage = mongoModel ? { ...page, rows: mongoModel.rows } : page;
     if (state.viewMode === "json") {
-      viewEl.appendChild(renderJsonView(page, entries, marks));
+      viewEl.appendChild(renderJsonView(viewPage, entries, marks, currentKind() === "mongodb" ? (row, rowIndex) => mongoRowIdentity(page, rowIndex) : null));
     } else if (state.viewMode === "text") {
-      viewEl.appendChild(renderTextView(page, entries));
+      viewEl.appendChild(renderTextView(viewPage, entries));
     } else {
-      viewEl.appendChild(buildGrid(entries.map((e) => e.name), page.rows, {
+      viewEl.appendChild(buildGrid(entries.map((e) => e.name), viewPage.rows, {
         pk: page.pk,
         pkIndex: page.pk ? page.columns.indexOf(page.pk) : -1,
-        editable: writable,
+        editable: pgWritable || mongoWritable,
         columnMeta: page.columnMeta,
         indices: entries.map((e) => e.index),
         widths: tablePrefs().widths,
         marks,
+        present: mongoModel?.present,
+        rowIdentity: currentKind() === "mongodb" ? (row, rowIndex) => mongoRowIdentity(page, rowIndex) : null,
         sticky: !!page.pk,
-        onEditCell: writable ? (row, col) => {
+        onEditCell: pgWritable ? (row, col) => {
           if (isCurrentTableContext(t, connection))
             editCellDialog(row, col);
+        } : mongoWritable ? (row, col, rowIndex) => {
+          if (isCurrentTableContext(t, connection))
+            editMongoCellDialog(rowIndex, col);
         } : undefined,
-        onDeleteRow: writable ? (row) => {
+        onDeleteRow: pgWritable ? (row) => {
           if (isCurrentTableContext(t, connection))
             deleteRowDialog(row);
+        } : mongoWritable ? (row, rowIndex) => {
+          if (isCurrentTableContext(t, connection))
+            deleteMongoDocumentDialog(rowIndex);
         } : undefined,
-        onInspect: (row) => openInspector(row),
+        onInspect: currentKind() === "redis" ? (row) => {
+          if (isCurrentTableContext(t, connection))
+            openRedisEditorForRow(t, connection, row);
+        } : (row, rowIndex) => openInspector(row, rowIndex),
+        onOpenRow: currentKind() === "redis" ? (row) => {
+          if (isCurrentTableContext(t, connection))
+            openRedisEditorForRow(t, connection, row);
+        } : null,
+        inspectTitle: currentKind() === "redis" ? "Open Key Editor" : currentKind() === "mongodb" ? "Document inspector" : "Row inspector",
+        deleteTitle: currentKind() === "mongodb" ? "Delete document" : "Delete row",
         onSort: (col) => reloadTable(0, col),
         sortColumns: page.sortColumns,
         onResize: async (col, width) => {
@@ -3375,14 +4246,18 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
         desc: page.desc
       }));
     }
-    const footer = el2("div", "datafoot");
+    const footer = el3("div", "datafoot");
     if (!page.pk)
-      footer.appendChild(el2("span", "notice", "No PK — read-only"));
+      footer.appendChild(el3("span", "notice", "No PK — read-only"));
+    else if (currentKind() === "redis")
+      footer.appendChild(el3("span", null, "Double-click a key to open Key Editor"));
+    else if (currentKind() === "mongodb" && !hasMongoSnapshots(page))
+      footer.appendChild(el3("span", "notice", "Canonical document snapshots unavailable — read-only"));
     else if (page.readOnly)
-      footer.appendChild(el2("span", "notice", `${DB_TYPES[currentKind()].label} · read-only`));
+      footer.appendChild(el3("span", "notice", `${DB_TYPES[currentKind()].label} · read-only`));
     else
-      footer.appendChild(el2("span", null, `${t.schema}.${t.name}`));
-    footer.appendChild(el2("span", "spacer"));
+      footer.appendChild(el3("span", null, `${t.schema}.${t.name}`));
+    footer.appendChild(el3("span", "spacer"));
     footer.appendChild(buildPager(page));
     viewEl.appendChild(footer);
   }
@@ -3395,52 +4270,52 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
     const meta = t ? findTableMeta(t.schema, t.name) : null;
     if (!t || !meta)
       return renderWelcome();
-    const info = el2("div", "structure-meta");
-    info.appendChild(el2("span", "pill", meta.kind === "matview" ? "MATERIALIZED VIEW" : meta.kind.toUpperCase()));
-    info.appendChild(el2("span", null, `${meta.columns.length} ${plural(meta.columns.length, "column")}`));
-    info.appendChild(el2("span", null, meta.primaryKey ? `PK: ${meta.primaryKey}` : "No primary key"));
+    const info = el3("div", "structure-meta");
+    info.appendChild(el3("span", "pill", meta.kind === "matview" ? "MATERIALIZED VIEW" : meta.kind.toUpperCase()));
+    info.appendChild(el3("span", null, `${meta.columns.length} ${plural(meta.columns.length, "column")}`));
+    info.appendChild(el3("span", null, meta.primaryKey ? `PK: ${meta.primaryKey}` : "No primary key"));
     if (meta.approxRows !== null && meta.approxRows >= 0)
-      info.appendChild(el2("span", null, `≈ ${fmtCount(meta.approxRows)} ${plural(meta.approxRows, "row")}`));
+      info.appendChild(el3("span", null, `≈ ${fmtCount(meta.approxRows)} ${plural(meta.approxRows, "row")}`));
     viewEl.appendChild(info);
-    const wrap = el2("div", "gridwrap");
-    const table = el2("table", "grid structure-grid");
-    const head = el2("tr");
+    const wrap = el3("div", "gridwrap");
+    const table = el3("table", "grid structure-grid");
+    const head = el3("tr");
     for (const label of ["Column", "Type", "Nullable", "Key"])
-      head.appendChild(el2("th", null, label));
+      head.appendChild(el3("th", null, label));
     table.appendChild(head);
     for (const column of meta.columns) {
-      const row = el2("tr");
-      row.appendChild(el2("td", null, column.name));
-      const type = el2("td");
+      const row = el3("tr");
+      row.appendChild(el3("td", null, column.name));
+      const type = el3("td");
       type.appendChild(typeBadge(column.type));
       type.appendChild(document.createTextNode(` ${column.type}`));
       row.appendChild(type);
-      row.appendChild(el2("td", column.nullable ? "null" : "", column.nullable ? "YES" : "NO"));
-      const key = el2("td");
+      row.appendChild(el3("td", column.nullable ? "null" : "", column.nullable ? "YES" : "NO"));
+      const key = el3("td");
       if (column.pk)
-        key.appendChild(el2("span", "keypill", "PRIMARY KEY"));
+        key.appendChild(el3("span", "keypill", "PRIMARY KEY"));
       row.appendChild(key);
       table.appendChild(row);
     }
     wrap.appendChild(table);
     viewEl.appendChild(wrap);
-    const footer = el2("div", "datafoot");
-    footer.appendChild(el2("span", null, `${t.schema}.${t.name}`));
-    footer.appendChild(el2("span", "spacer"));
-    footer.appendChild(el2("span", null, currentKind() === "postgres" ? "pg_catalog metadata" : currentKind() === "mongodb" ? "Fields from the current document page" : "Redis metadata"));
+    const footer = el3("div", "datafoot");
+    footer.appendChild(el3("span", null, `${t.schema}.${t.name}`));
+    footer.appendChild(el3("span", "spacer"));
+    footer.appendChild(el3("span", null, currentKind() === "postgres" ? "pg_catalog metadata" : currentKind() === "mongodb" ? "Fields from the current document page" : "Redis metadata"));
     viewEl.appendChild(footer);
   }
   function renderWelcome() {
     viewEl.innerHTML = "";
-    const welcome = el2("div", "welcome");
-    const logo = el2("span", "welcome-logo");
+    const welcome = el3("div", "welcome");
+    const logo = el3("span", "welcome-logo");
     logo.appendChild(dbLogo());
     welcome.appendChild(logo);
-    welcome.appendChild(el2("h2", null, state.conns.length ? "Select an object in Explorer" : "Add a connection"));
-    welcome.appendChild(el2("p", null, state.conns.length ? isPostgres() ? "Open a table on the left or create an SQL console. The tree stays in place when you switch between objects." : currentKind() === "mongodb" ? "Select a collection on the left to browse documents." : "Open keys on the left to browse Redis keys and values." : "Use a separate DSN for each PostgreSQL, MongoDB, or Redis connection."));
-    const actions = el2("div", "welcome-actions");
+    welcome.appendChild(el3("h2", null, state.conns.length ? "Select an object in Explorer" : "Add a connection"));
+    welcome.appendChild(el3("p", null, state.conns.length ? isPostgres() ? "Open a table on the left or create an SQL console. The tree stays in place when you switch between objects." : currentKind() === "mongodb" ? "Select a collection to browse and edit documents. Double-click a field, or use the document inspector for Form and canonical JSON editing." : "Open keys on the left to browse Redis keys. Double-click a key to edit its value, entries, TTL, or lifecycle." : "Use a separate DSN for each PostgreSQL, MongoDB, or Redis connection."));
+    const actions = el3("div", "welcome-actions");
     if (!state.conns.length || isPostgres()) {
-      const primary2 = el2("button", "btn primary", state.conns.length ? "New SQL console" : "Add connection");
+      const primary2 = el3("button", "btn primary", state.conns.length ? "New SQL console" : "Add connection");
       primary2.addEventListener("click", () => state.conns.length ? openSqlConsole() : connectionsDialog());
       actions.appendChild(primary2);
     }
@@ -3448,11 +4323,11 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
     viewEl.appendChild(welcome);
   }
   function buildFilterBar(page, filter) {
-    const bar = el2("div", "fbar");
-    bar.appendChild(el2("span", "lbl", "Filter"));
-    const colSel = el2("select");
+    const bar = el3("div", "fbar");
+    bar.appendChild(el3("span", "lbl", "Filter"));
+    const colSel = el3("select");
     for (const c of page.filterColumns ?? page.columns) {
-      const o = el2("option", null, c);
+      const o = el3("option", null, c);
       o.value = c;
       colSel.appendChild(o);
     }
@@ -3469,14 +4344,14 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
       ["isnull", "IS NULL"],
       ["notnull", "NOT NULL"]
     ];
-    const opSel = el2("select");
+    const opSel = el3("select");
     for (const [v2, label] of OPS) {
-      const o = el2("option", null, label);
+      const o = el3("option", null, label);
       o.value = v2;
       opSel.appendChild(o);
     }
     opSel.value = filter.op;
-    const valInput = el2("input");
+    const valInput = el3("input");
     valInput.placeholder = "value";
     valInput.value = filter.val ?? "";
     const noValue = () => opSel.value === "isnull" || opSel.value === "notnull";
@@ -3484,14 +4359,14 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
     opSel.addEventListener("change", () => {
       valInput.style.display = noValue() ? "none" : "";
     });
-    const applyBtn = el2("button", "iconbtn", "Apply");
+    const applyBtn = el3("button", "iconbtn", "Apply");
     applyBtn.addEventListener("click", async () => {
       const previous = state.table.filter;
       state.table.filter = { col: colSel.value, op: opSel.value, val: valInput.value };
       if (await reloadTable(0) === false)
         state.table.filter = previous;
     });
-    const reset = el2("button", "iconbtn", "✕");
+    const reset = el3("button", "iconbtn", "✕");
     reset.title = "Clear filter";
     reset.addEventListener("click", async () => {
       const previous = state.table.filter;
@@ -3538,7 +4413,7 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
   }
   function download(name, text, mime) {
     const blob = new Blob([text], { type: mime });
-    const a = el2("a");
+    const a = el3("a");
     a.href = URL.createObjectURL(blob);
     a.download = name;
     a.click();
@@ -3582,16 +4457,17 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
 `)).catch(() => toast("error", "Failed to copy."));
     toast("success", `Copied ${page.rows.length} ${plural(page.rows.length, "row")}.`);
   }
-  function renderJsonView(page, entries, marks) {
-    const wrap = el2("div", "jsonview");
+  function renderJsonView(page, entries, marks, rowIdentity = null) {
+    const wrap = el3("div", "jsonview");
     const pkIndex = page.pk ? page.columns.indexOf(page.pk) : -1;
-    page.rows.slice(0, 200).forEach((row) => {
+    page.rows.slice(0, 200).forEach((row, rowIndex) => {
       const obj = Object.fromEntries(entries.map((e) => [e.name, row[e.index] === null ? null : row[e.index]]));
       const pretty = JSON.stringify(obj, null, 2);
-      const block = el2("div", "jrow");
+      const block = el3("div", "jrow");
       const headText = pkIndex >= 0 ? `${page.pk} = ${esc(row[pkIndex])}` : "row";
-      const head = el2("div", "jhead", headText + (marks?.deleted.has(String(row[pkIndex])) ? "  ·  deleted" : ""));
-      const body = el2("pre", "jbody");
+      const identity = rowIdentity ? rowIdentity(row, rowIndex) : row[pkIndex];
+      const head = el3("div", "jhead", headText + (marks?.deleted.has(String(identity)) ? "  ·  deleted" : ""));
+      const body = el3("pre", "jbody");
       body.appendChild(renderJsonHighlighted(pretty));
       head.addEventListener("click", () => {
         body.style.display = body.style.display === "none" ? "" : "none";
@@ -3600,11 +4476,11 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
       wrap.appendChild(block);
     });
     if (page.rows.length > 200)
-      wrap.appendChild(el2("div", "empty", `Showing 200 of ${fmtInt(page.rows.length)} ${plural(page.rows.length, "row")}.`));
+      wrap.appendChild(el3("div", "empty", `Showing 200 of ${fmtInt(page.rows.length)} ${plural(page.rows.length, "row")}.`));
     return wrap;
   }
   function renderTextView(page, entries) {
-    const pre = el2("div", "textview");
+    const pre = el3("div", "textview");
     const lines = [entries.map((e) => e.name).join(" | ")];
     for (const row of page.rows) {
       lines.push(entries.map((e) => row[e.index] === null ? NULL_TEXT : esc(row[e.index])).join(" | "));
@@ -3613,35 +4489,37 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
 `);
     return pre;
   }
-  function openInspector(row) {
+  function openInspector(row, rowIndex) {
     const t = state.table;
     const connection = state.connId;
     const page = t?.page;
     if (!t || !page)
       return;
-    const wrap = el2("div", "sheetwrap");
-    const sheet = el2("div", "sheet");
-    const header = el2("header");
+    if (currentKind() === "mongodb")
+      return openMongoInspector(row, rowIndex);
+    const wrap = el3("div", "sheetwrap");
+    const sheet = el3("div", "sheet");
+    const header = el3("header");
     const pkIndex = page.pk ? page.columns.indexOf(page.pk) : -1;
     const title = pkIndex >= 0 ? `${t.schema}.${t.name} — ${page.pk} = ${esc(row[pkIndex])}` : `${t.schema}.${t.name} — row`;
     const rowDeleted = pkIndex >= 0 && pendingMarks().deleted.has(String(row[pkIndex]));
-    header.appendChild(el2("h3", null, title));
-    const closeBtn = el2("button", "iconbtn", "✕");
+    header.appendChild(el3("h3", null, title));
+    const closeBtn = el3("button", "iconbtn", "✕");
     closeBtn.addEventListener("click", close);
     header.appendChild(closeBtn);
     sheet.appendChild(header);
-    const body = el2("div", "sbody");
+    const body = el3("div", "sbody");
     for (const meta of page.columnMeta) {
       const i = page.columns.indexOf(meta.name);
       const value = row[i];
-      const block = el2("div", "srow");
-      const sh = el2("div", "sh");
+      const block = el3("div", "srow");
+      const sh = el3("div", "sh");
       sh.appendChild(typeBadge(meta.type));
-      sh.appendChild(el2("span", null, `${meta.name} — ${meta.type}${meta.pk ? " · PK" : ""}`));
+      sh.appendChild(el3("span", null, `${meta.name} — ${meta.type}${meta.pk ? " · PK" : ""}`));
       if (meta.name === page.pk)
-        sh.appendChild(el2("span", "pk", "PK"));
+        sh.appendChild(el3("span", "pk", "PK"));
       block.appendChild(sh);
-      const sv = el2("div", `sv${value === null ? " null" : ""}`);
+      const sv = el3("div", `sv${value === null ? " null" : ""}`);
       if (value === null) {
         sv.textContent = NULL_TEXT;
       } else {
@@ -3668,8 +4546,8 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
       body.appendChild(block);
     }
     sheet.appendChild(body);
-    const footer = el2("footer");
-    const copy = el2("button", "btn", "Copy row");
+    const footer = el3("footer");
+    const copy = el3("button", "btn", "Copy row");
     copy.addEventListener("click", async () => {
       const text = JSON.stringify(Object.fromEntries(page.columnMeta.map((m) => [m.name, row[page.columns.indexOf(m.name)]])));
       await host.writeClipboard(text).catch(() => toast("error", "Failed to copy."));
@@ -3677,7 +4555,7 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
     });
     footer.appendChild(copy);
     if (page.pk && isPostgres() && !page.readOnly) {
-      const edit = el2("button", "btn", "Edit…");
+      const edit = el3("button", "btn", "Edit…");
       edit.disabled = rowDeleted;
       if (rowDeleted)
         edit.title = "This row is marked for deletion.";
@@ -3687,7 +4565,7 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
           pickColumnDialog(row);
       });
       footer.appendChild(edit);
-      const del = el2("button", "btn danger", "Delete row");
+      const del = el3("button", "btn danger", "Delete row");
       del.addEventListener("click", async () => {
         close();
         if (isCurrentTableContext(t, connection))
@@ -3702,6 +4580,8 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
         close();
     });
     const onKey = (event) => {
+      if (document.querySelector(".overlay"))
+        return;
       if (event.key === "Escape") {
         event.stopPropagation();
         close();
@@ -3726,7 +4606,7 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
         for (const meta of page.columnMeta) {
           if (meta.name === page.pk)
             continue;
-          const b = el2("button", "btn");
+          const b = el3("button", "btn");
           b.style.alignSelf = "flex-start";
           b.appendChild(typeBadge(meta.type));
           b.appendChild(document.createTextNode(` ${meta.name} — ${meta.type}`));
@@ -3754,17 +4634,17 @@ limit 100`],
   ];
   function renderSql() {
     viewEl.innerHTML = "";
-    const box = el2("div", "sqlbox");
+    const box = el3("div", "sqlbox");
     box.style.position = "relative";
-    const chips = el2("div", "chips");
+    const chips = el3("div", "chips");
     for (const [label, tpl] of SQL_TEMPLATES) {
-      const b = el2("button", null, label);
+      const b = el3("button", null, label);
       b.title = "Insert template";
       b.addEventListener("click", () => insertTemplate(tpl));
       chips.appendChild(b);
     }
-    const editor = el2("div", "editor");
-    const pre = el2("pre", "sql-hl");
+    const editor = el3("div", "editor");
+    const pre = el3("pre", "sql-hl");
     const textarea = document.createElement("textarea");
     textarea.placeholder = `SELECT * FROM … LIMIT 10;
 
@@ -3798,18 +4678,18 @@ Other statements require confirmation.`;
     textarea.addEventListener("blur", () => setTimeout(closeAutocomplete, 150));
     editor.append(pre, textarea);
     sync();
-    const bar = el2("div", "databar");
-    const run = el2("button", "btn primary", "Run");
+    const bar = el3("div", "databar");
+    const run = el3("button", "btn primary", "Run");
     run.title = "Ctrl/⌘+Enter";
     run.addEventListener("click", () => runSql());
     run.disabled = state.sqlBusy;
-    const explain = el2("button", "btn", "Explain");
+    const explain = el3("button", "btn", "Explain");
     explain.title = "EXPLAIN ANALYZE for a SELECT query";
     explain.disabled = state.sqlBusy;
     explain.addEventListener("click", () => runExplain());
-    bar.append(run, explain, el2("span", "sqlmeta", state.sqlBusy ? "Running…" : "Ctrl/⌘+Enter"));
+    bar.append(run, explain, el3("span", "sqlmeta", state.sqlBusy ? "Running…" : "Ctrl/⌘+Enter"));
     box.append(bar, chips, editor);
-    const result = el2("div");
+    const result = el3("div");
     result.style.cssText = "flex:1; min-height:0; display:flex; flex-direction:column;";
     box.appendChild(result);
     viewEl.appendChild(box);
@@ -3871,11 +4751,11 @@ Other statements require confirmation.`;
   function paintAutocomplete(textarea) {
     if (acBox)
       acBox.remove();
-    acBox = el2("div", "ac");
+    acBox = el3("div", "ac");
     acItems.forEach((item, i) => {
-      const row = el2("div", `aci${i === acSel ? " sel" : ""}`);
-      row.appendChild(el2("span", null, item.name));
-      row.appendChild(el2("span", "k", item.kind));
+      const row = el3("div", `aci${i === acSel ? " sel" : ""}`);
+      row.appendChild(el3("span", null, item.name));
+      row.appendChild(el3("span", "k", item.kind));
       row.addEventListener("mousedown", (event) => {
         event.preventDefault();
         acceptAutocomplete(textarea, i);
@@ -3946,16 +4826,16 @@ Other statements require confirmation.`;
     const r = state.sqlResult;
     if (!r)
       return;
-    const meta = el2("div", "sqlmeta");
+    const meta = el3("div", "sqlmeta");
     meta.style.padding = "4px 10px";
     meta.textContent = r.command === "SELECT" || r.rows.length ? `${fmtInt(r.rowCount)} ${plural(r.rowCount, "row")} · ${r.ms} ms` : `Done: ${r.command || "OK"} · ${fmtInt(r.rowCount)} ${plural(r.rowCount, "row")} affected · ${r.ms} ms`;
     result.appendChild(meta);
     const isPlan = r.columns.length === 1 && /QUERY PLAN/i.test(r.columns[0]);
-    const holder = el2("div");
+    const holder = el3("div");
     holder.style.cssText = "flex:1; min-height:0; display:flex; flex-direction:column;";
     result.appendChild(holder);
     if (isPlan) {
-      const pre = el2("div", "textview");
+      const pre = el3("div", "textview");
       pre.textContent = r.rows.map((row) => row[0]).join(`
 `);
       holder.appendChild(pre);
@@ -3963,13 +4843,13 @@ Other statements require confirmation.`;
     }
     if (!r.columns.length)
       return;
-    const bar = el2("div", "databar");
+    const bar = el3("div", "databar");
     bar.style.padding = "2px 10px 4px";
     bar.appendChild(seg(state.sqlViewMode, (v2) => {
       state.sqlViewMode = v2;
       renderSqlResult();
     }));
-    const copy = el2("button", "iconbtn", "Copy");
+    const copy = el3("button", "iconbtn", "Copy");
     copy.title = "Copy result to clipboard (TSV)";
     copy.addEventListener("click", async () => {
       const lines = [r.columns.join("\t"), ...r.rows.map((row) => row.map((v2) => v2 === null ? NULL_TEXT : esc(v2)).join("\t"))];
@@ -3977,7 +4857,7 @@ Other statements require confirmation.`;
 `)).catch(() => toast("error", "Failed to copy."));
       toast("success", "Result copied.");
     });
-    const dl = el2("button", "iconbtn", "⤓ CSV");
+    const dl = el3("button", "iconbtn", "⤓ CSV");
     dl.addEventListener("click", () => {
       const q = (v2) => {
         const s = v2 === null ? "" : String(v2);
@@ -3986,7 +4866,7 @@ Other statements require confirmation.`;
       download("result.csv", [r.columns.map(q).join(","), ...r.rows.map((row) => row.map(q).join(","))].join(`
 `), "text/csv");
     });
-    bar.append(el2("span", "spacer"), copy, dl);
+    bar.append(el3("span", "spacer"), copy, dl);
     holder.appendChild(bar);
     if (state.sqlViewMode === "json") {
       const fakePage = { columns: r.columns, columnMeta: r.columns.map((c) => ({ name: c, type: "" })), rows: r.rows.slice(0, 200), pk: null };
@@ -4004,14 +4884,14 @@ Other statements require confirmation.`;
     if (!box)
       return;
     box.querySelector(".hist")?.remove();
-    const hist = el2("div", "hist");
-    hist.appendChild(el2("div", "hhead", "History"));
+    const hist = el3("div", "hist");
+    hist.appendChild(el3("div", "hhead", "History"));
     if (!state.history.length)
-      hist.appendChild(el2("div", "hhead", "empty"));
+      hist.appendChild(el3("div", "hhead", "empty"));
     for (const h of state.history.slice(0, 15)) {
-      const item = el2("div", "hitem");
-      item.appendChild(el2("span", "k" + (h.kind === "query" ? " ro" : ""), h.kind === "query" ? "R" : "W"));
-      item.appendChild(el2("span", "hsql", h.sql.replace(/\s+/g, " ")));
+      const item = el3("div", "hitem");
+      item.appendChild(el3("span", "k" + (h.kind === "query" ? " ro" : ""), h.kind === "query" ? "R" : "W"));
+      item.appendChild(el3("span", "hsql", h.sql.replace(/\s+/g, " ")));
       item.title = h.sql;
       item.addEventListener("click", () => {
         state.sql = h.sql;
@@ -4336,6 +5216,239 @@ ${sql.slice(0, 200)}${sql.length > 200 ? "…" : ""}`);
       }
     }
   }
+  function localDateValue(date = new Date) {
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  }
+  function localTimeValue(date = new Date) {
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  }
+  function localOffsetValue() {
+    const minutes = -new Date().getTimezoneOffset();
+    const sign = minutes < 0 ? "-" : "+";
+    const abs = Math.abs(minutes);
+    return `${sign}${String(Math.floor(abs / 60)).padStart(2, "0")}:${String(abs % 60).padStart(2, "0")}`;
+  }
+  function normalizeOffset(value) {
+    if (!value || value === "Z")
+      return "+00:00";
+    const match = String(value).match(/^([+-])(\d{2}):?(\d{2})?$/);
+    if (!match)
+      return null;
+    const hours = Number(match[2]);
+    const minutes = Number(match[3] || 0);
+    if (hours > 15 || minutes > 59)
+      return null;
+    return `${match[1]}${match[2]}:${match[3] || "00"}`;
+  }
+  function createPostgresValueEditor(column, value, { insert = false } = {}) {
+    const type = String(column?.type || "text").toLowerCase();
+    const kind = type === "uuid" ? "uuid" : type === "date" ? "date" : type.startsWith("timestamp") ? type.includes("with time zone") ? "timestamptz" : "timestamp" : type.startsWith("time") ? type.includes("with time zone") ? "timetz" : "time" : "text";
+    const nullable = column?.nullable !== false;
+    const generated = !!column?.generated;
+    const databaseGenerated = generated || insert && column?.identity === "ALWAYS";
+    const hasDefault = column?.defaultValue != null || !!column?.identity || generated;
+    let mode = insert && hasDefault ? "default" : !insert && value === null ? "null" : "value";
+    if (mode === "null" && !nullable)
+      mode = "value";
+    if (databaseGenerated)
+      mode = "default";
+    let busy = false;
+    let draft = value === null || value === undefined ? "" : String(value);
+    const root2 = el3("div", `typed-field${kind === "text" && (draft.length > 70 || draft.includes(`
+`) || /json|text|xml|bytea|\[\]/.test(type)) ? " wide" : ""}`);
+    const head = el3("div", "typed-field-head");
+    head.appendChild(el3("span", "typed-field-name", column.name));
+    head.appendChild(el3("span", "typed-field-type", column.type || "text"));
+    if (!nullable)
+      head.appendChild(el3("span", "typed-constraint", "NOT NULL"));
+    if (column.pk)
+      head.appendChild(el3("span", "typed-constraint", "PRIMARY KEY"));
+    root2.appendChild(head);
+    const modes = el3("div", "typed-modes");
+    const modeButtons = new Map;
+    const addMode = (id, label) => {
+      const button2 = el3("button", mode === id ? "on" : "", label);
+      button2.type = "button";
+      button2.addEventListener("click", () => setMode(id));
+      modeButtons.set(id, button2);
+      modes.appendChild(button2);
+    };
+    if (!databaseGenerated)
+      addMode("value", "Value");
+    if (nullable && !databaseGenerated)
+      addMode("null", "NULL");
+    if (insert && hasDefault)
+      addMode("default", "Default");
+    root2.appendChild(modes);
+    const row = el3("div", "typed-input-row");
+    const longText = kind === "text" && (draft.length > 70 || draft.includes(`
+`) || /json|text|xml|bytea|\[\]/.test(type));
+    const input = longText ? el3("textarea") : el3("input");
+    if (!longText)
+      input.type = kind === "date" || kind === "time" || kind === "timetz" ? kind === "date" ? "date" : "time" : kind === "timestamp" || kind === "timestamptz" ? "datetime-local" : "text";
+    if (["time", "timetz", "timestamp", "timestamptz"].includes(kind))
+      input.step = "0.000001";
+    input.setAttribute("aria-label", `${column.name} value`);
+    if (kind === "uuid") {
+      input.placeholder = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx";
+      input.spellcheck = false;
+    }
+    let offsetInput = null;
+    if (kind === "timestamptz") {
+      const match = draft.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?)(Z|[+-]\d{2}(?::?\d{2})?)?$/);
+      input.value = match ? `${match[1]}T${match[2]}` : draft.replace(" ", "T");
+      offsetInput = el3("input");
+      offsetInput.type = "text";
+      offsetInput.className = "tz-offset";
+      offsetInput.style.cssText = "flex:0 0 76px;width:76px;text-align:center";
+      offsetInput.title = "Explicit UTC offset";
+      offsetInput.setAttribute("aria-label", "UTC offset");
+      offsetInput.value = normalizeOffset(match?.[3]) || localOffsetValue();
+    } else if (kind === "timestamp") {
+      const match = draft.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?)/);
+      input.value = match ? `${match[1]}T${match[2]}` : draft.replace(" ", "T");
+    } else if (kind === "timetz") {
+      const match = draft.match(/^(\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?)(Z|[+-]\d{2}(?::?\d{2})?)?$/);
+      input.value = match?.[1] || draft;
+      offsetInput = el3("input");
+      offsetInput.type = "text";
+      offsetInput.style.cssText = "flex:0 0 76px;width:76px;text-align:center";
+      offsetInput.title = "Explicit UTC offset";
+      offsetInput.setAttribute("aria-label", "UTC offset");
+      offsetInput.value = normalizeOffset(match?.[2]) || localOffsetValue();
+    } else {
+      input.value = draft;
+    }
+    row.appendChild(input);
+    if (offsetInput)
+      row.appendChild(offsetInput);
+    root2.appendChild(row);
+    const tools = el3("div", "typed-tools");
+    const toolButtons = [];
+    const addTool = (label, onClick) => {
+      const button2 = el3("button", "iconbtn", label);
+      button2.type = "button";
+      button2.addEventListener("click", onClick);
+      toolButtons.push(button2);
+      tools.appendChild(button2);
+      return button2;
+    };
+    if (kind === "uuid") {
+      addTool("Generate UUID", () => {
+        if (mode !== "value" || busy)
+          return;
+        input.value = crypto.randomUUID();
+        input.dispatchEvent(new Event("input"));
+      });
+      addTool("Copy", async () => {
+        if (!input.value)
+          return;
+        await host.writeClipboard(input.value).catch(() => toast("error", "Failed to copy."));
+        toast("success", "UUID copied.");
+      });
+    } else if (kind === "date") {
+      addTool("Today", () => {
+        input.value = localDateValue();
+        input.dispatchEvent(new Event("input"));
+      });
+    } else if (["time", "timetz", "timestamp", "timestamptz"].includes(kind)) {
+      addTool("Now", () => {
+        const now = new Date;
+        const date = localDateValue(now);
+        const time = localTimeValue(now);
+        input.value = kind === "time" || kind === "timetz" ? time : `${date}T${time}`;
+        if (offsetInput)
+          offsetInput.value = localOffsetValue();
+        input.dispatchEvent(new Event("input"));
+      });
+    }
+    if (tools.childElementCount)
+      root2.appendChild(tools);
+    const preview = el3("div", "typed-preview");
+    const error = el3("div", "typed-error");
+    error.setAttribute("role", "alert");
+    root2.append(preview, error);
+    if (insert && hasDefault) {
+      const detail = databaseGenerated ? "Generated by PostgreSQL; this column is omitted from INSERT." : `Database default: ${column.defaultValue || `${column.identity} identity`}`;
+      root2.appendChild(el3("div", "typed-note", detail));
+    } else if (kind === "timestamptz" || kind === "timetz") {
+      root2.appendChild(el3("div", "typed-note", "The entered clock time and explicit offset are sent without timezone conversion."));
+    } else if (kind === "timestamp") {
+      root2.appendChild(el3("div", "typed-note", "Timestamp without time zone is sent exactly as entered."));
+    }
+    const storedValue = () => {
+      if (kind === "timestamptz")
+        return `${input.value.replace("T", " ")}${normalizeOffset(offsetInput.value) || offsetInput.value}`;
+      if (kind === "timetz")
+        return `${input.value}${normalizeOffset(offsetInput.value) || offsetInput.value}`;
+      if (kind === "timestamp")
+        return input.value.replace("T", " ");
+      return input.value;
+    };
+    const update = () => {
+      if (mode === "value")
+        draft = input.value;
+      preview.innerHTML = "";
+      const label = mode === "null" ? "NULL" : mode === "default" ? "DEFAULT" : storedValue() || "(empty string)";
+      preview.append(document.createTextNode(mode === "value" ? "Stored value: " : insert ? "Insert mode: " : "Edit mode: "), el3("strong", null, label));
+      error.textContent = "";
+      for (const button2 of toolButtons)
+        button2.disabled = busy || mode !== "value";
+    };
+    function setMode(next, restoreDraft = true) {
+      if (busy || !modeButtons.has(next))
+        return;
+      if (mode === "value" && next !== "value")
+        draft = input.value;
+      mode = next;
+      if (mode === "value" && restoreDraft)
+        input.value = draft;
+      for (const [id, button2] of modeButtons)
+        button2.classList.toggle("on", id === mode);
+      const disabled = busy || mode !== "value";
+      input.disabled = disabled;
+      if (offsetInput)
+        offsetInput.disabled = disabled;
+      update();
+    }
+    input.addEventListener("input", update);
+    offsetInput?.addEventListener("input", update);
+    setMode(mode, false);
+    return {
+      root: root2,
+      focus: () => {
+        if (mode === "value")
+          setTimeout(() => input.focus(), 30);
+      },
+      setBusy(value2) {
+        busy = value2;
+        for (const button2 of modeButtons.values())
+          button2.disabled = busy;
+        input.disabled = busy || mode !== "value";
+        if (offsetInput)
+          offsetInput.disabled = busy || mode !== "value";
+        update();
+      },
+      read: () => ({ mode, value: mode === "value" ? storedValue() : null }),
+      validate() {
+        let message = "";
+        if (mode === "null" && !nullable)
+          message = `${column.name} is NOT NULL.`;
+        else if (mode === "value" && kind !== "text" && !input.value.trim())
+          message = `Enter ${kind === "uuid" ? "a UUID" : `a ${column.type}`} or choose ${insert && hasDefault ? "Default" : nullable ? "NULL" : "another value"}.`;
+        else if (mode === "value" && kind === "uuid" && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.value.trim()))
+          message = "Enter a valid UUID or generate one.";
+        else if (mode === "value" && offsetInput && !normalizeOffset(offsetInput.value))
+          message = "Use an explicit UTC offset from -15:00 to +15:00, for example +03:00.";
+        error.textContent = message;
+        if (message)
+          input.focus();
+        return !message;
+      }
+    };
+  }
   function editCellDialog(row, col) {
     const t = state.table;
     const connection = state.connId;
@@ -4344,56 +5457,42 @@ ${sql.slice(0, 200)}${sql.length > 200 ? "…" : ""}`);
       return;
     const colIndex = page.columns.indexOf(col);
     const current = row[colIndex];
-    const meta = page.columnMeta.find((c) => c.name === col);
+    const meta = page.columnMeta.find((c) => c.name === col) || { name: col, type: "text", nullable: true };
+    if (meta.generated || meta.identity === "ALWAYS") {
+      toast("info", `${col} is generated by PostgreSQL and cannot be edited directly.`);
+      return;
+    }
     const pkIndex = page.columns.indexOf(page.pk);
     const pkVal = row[pkIndex];
-    let isNull = current === null;
+    const editor = createPostgresValueEditor(meta, current);
     dialog({
-      title: `Edit: ${t.schema}.${t.name}`,
+      title: `Edit ${t.schema}.${t.name}.${col}`,
+      className: "typed-dialog",
       build: (body) => {
-        dialogBodyRef = body;
-        const label = el2("label", "fld", `${col} — ${meta?.type ?? ""}${meta?.nullable ? "" : " NOT NULL"}`);
-        label.prepend(typeBadge(meta?.type));
-        const longValue = current !== null && (String(current).length > 60 || String(current).includes(`
-`));
-        const input = longValue ? el2("textarea") : el2("input");
-        if (!longValue)
-          input.type = "text";
-        input.value = current === null ? "" : esc(current);
-        if (!isNull)
-          setTimeout(() => input.focus(), 30);
-        label.appendChild(input);
-        body.appendChild(label);
-        const nullLabel = el2("label");
-        nullLabel.style.cssText = "display:flex;gap:6px;align-items:center;font-size:12px;color:var(--oc-muted,#999)";
-        const checkbox = el2("input");
-        checkbox.type = "checkbox";
-        checkbox.checked = isNull;
-        checkbox.addEventListener("change", () => {
-          isNull = checkbox.checked;
-          input.disabled = isNull;
-        });
-        nullLabel.append(checkbox, document.createTextNode("NULL"));
-        body.appendChild(nullLabel);
-        body._input = input;
+        body.appendChild(editor.root);
+        body.appendChild(el3("div", "typed-note", "The change is staged locally. Review it with Apply before anything is written to PostgreSQL. ⌘/Ctrl+Enter stages the change."));
+        editor.focus();
       },
       actions: [
         { label: "Cancel", value: null },
         {
           label: "Stage change",
           kind: "primary",
-          onClick: async (done) => {
+          shortcut: true,
+          onClick: (done) => {
             if (!isCurrentTableContext(t, connection)) {
               done(null);
               return;
             }
-            const body = dialogBodyRef;
-            const newValue = isNull ? null : body._input.value;
-            if (!isNull && newValue === esc(current)) {
+            if (!editor.validate())
+              return false;
+            const next = editor.read();
+            const newValue = next.mode === "null" ? null : next.value;
+            if (next.mode === "null" && current === null || next.mode !== "null" && newValue === esc(current)) {
               done(null);
               return;
             }
-            if (!stageEdit(pkVal, col, current === null ? null : esc(current), newValue, isNull)) {
+            if (!stageEdit(pkVal, col, current === null ? null : esc(current), newValue, next.mode === "null")) {
               done(null);
               toast("info", "This row is marked for deletion. The change was not staged.");
               return;
@@ -4412,43 +5511,46 @@ ${sql.slice(0, 200)}${sql.length > 200 ? "…" : ""}`);
     const connection = state.connId;
     let formBody;
     let inserting = false;
+    const editors = [];
     dialog({
       title: `New row: ${t.schema}.${t.name}`,
+      className: "typed-dialog",
       isBusy: () => inserting,
       build: (body) => {
         formBody = body;
-        const fields = [];
-        for (const c of page.columnMeta) {
-          const label = el2("label", "fld", `${c.name} — ${c.type}${c.nullable ? "" : " NOT NULL"}`);
-          label.prepend(typeBadge(c.type));
-          const input = el2("input");
-          input.type = "text";
-          input.placeholder = c.nullable ? "blank = omit" : "required";
-          label.appendChild(input);
-          body.appendChild(label);
-          fields.push([c.name, input]);
+        const grid = el3("div", "typed-form-grid");
+        for (const column of page.columnMeta) {
+          const editor = createPostgresValueEditor(column, "", { insert: true });
+          editors.push({ column, editor });
+          grid.appendChild(editor.root);
         }
-        body._fields = fields;
-        body.appendChild(el2("p", null, "Blank fields are omitted. To insert NULL, leave the field blank (provide a value for required columns)."));
+        body.appendChild(grid);
+        body.appendChild(el3("div", "typed-note", "Value, NULL and Default are explicit. Default omits the column from INSERT; an empty Value remains an empty string. ⌘/Ctrl+Enter inserts the row."));
       },
       actions: [
         { label: "Cancel", value: null },
         {
           label: "Insert",
           kind: "primary",
+          shortcut: true,
           onClick: async (done) => {
-            if (inserting)
+            if (inserting || !isCurrentTableContext(t, connection))
               return false;
+            for (const { editor } of editors)
+              if (!editor.validate())
+                return false;
             const values = {};
-            for (const [name, input] of formBody._fields) {
-              if (input.value.trim() !== "")
-                values[name] = input.value;
+            for (const { column, editor } of editors) {
+              const next = editor.read();
+              if (next.mode !== "default")
+                values[column.name] = next.mode === "null" ? null : next.value;
             }
             inserting = true;
             const buttons = [...formBody.parentElement.querySelectorAll(".acts button")];
             buttons.forEach((button2) => {
               button2.disabled = true;
             });
+            editors.forEach(({ editor }) => editor.setBusy(true));
             try {
               const data = await svc("POST", "/row", {
                 body: { connection, schema: t.schema, table: t.name, values }
@@ -4465,6 +5567,7 @@ ${sql.slice(0, 200)}${sql.length > 200 ? "…" : ""}`);
               buttons.forEach((button2) => {
                 button2.disabled = false;
               });
+              editors.forEach(({ editor }) => editor.setBusy(false));
               toast("error", error.message);
               return false;
             }
@@ -4494,6 +5597,1036 @@ The deletion will be staged and applied when you click “Apply”.`, { yes: alr
       toast("info", `Deletion staged. Pending changes: ${pendingCount()}.`);
     }
     render();
+  }
+  var MONGO_FORBIDDEN_FIELDS = new Set(["__proto__", "prototype", "constructor"]);
+  var hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
+  function hasMongoSnapshots(page) {
+    return !!page && Array.isArray(page.rows) && Array.isArray(page.columns) && Array.isArray(page.documents) && Array.isArray(page.present) && page.documents.length === page.rows.length && page.present.length === page.rows.length && page.rows.every((row, index) => Array.isArray(row) && row.length === page.columns.length && typeof page.documents[index] === "string" && Array.isArray(page.present[index]) && page.present[index].length === page.columns.length);
+  }
+  function decimalNumberParts(source) {
+    const match = String(source).match(/^([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/);
+    if (!match)
+      return null;
+    let digits = `${match[2]}${match[3] ?? ""}`.replace(/^0+/, "");
+    let exponent = Number(match[4] ?? 0) - (match[3]?.length ?? 0);
+    if (!Number.isSafeInteger(exponent))
+      return null;
+    while (digits.endsWith("0")) {
+      digits = digits.slice(0, -1);
+      exponent += 1;
+    }
+    return { negative: match[1] === "-" && digits.length > 0, digits: digits || "0", exponent };
+  }
+  function sameDecimalNumber(left, right) {
+    const a = decimalNumberParts(left);
+    const b = decimalNumberParts(right);
+    return !!a && !!b && a.negative === b.negative && a.digits === b.digits && a.exponent === b.exponent;
+  }
+  function assertMongoNumberPrecision(source) {
+    const tokens = /("(?:\\.|[^"\\])*")|(-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/g;
+    let match;
+    while ((match = tokens.exec(source)) !== null) {
+      if (!match[2])
+        continue;
+      const numeric = Number(match[2]);
+      if (!Number.isFinite(numeric))
+        throw new Error(`Number ${match[2]} is outside the finite double range. Use an explicit canonical BSON number wrapper.`);
+      const significand = match[2].split(/[eE]/)[0];
+      if (numeric === 0 && match[2].startsWith("-") && !/[1-9]/.test(significand))
+        throw new Error("Use a canonical $numberDouble wrapper to preserve negative zero explicitly.");
+      if (numeric === 0 && /[1-9]/.test(significand))
+        throw new Error(`Number ${match[2]} underflows to zero. Use a canonical $numberDecimal wrapper to preserve it.`);
+      if (Number.isInteger(numeric) && !Number.isSafeInteger(numeric)) {
+        const wrapper = /[.eE]/.test(match[2]) ? "$numberDouble or $numberDecimal" : "$numberLong";
+        throw new Error(`Integer ${match[2]} is outside the safe JavaScript range. Use a canonical ${wrapper} wrapper to preserve it explicitly.`);
+      }
+      if (numeric === 0)
+        continue;
+      if (!sameDecimalNumber(match[2], JSON.stringify(numeric))) {
+        throw new Error(`Number ${match[2]} loses precision in a JavaScript round trip. Use canonical $numberDecimal for an exact decimal or $numberDouble for an explicit double.`);
+      }
+    }
+  }
+  function parseMongoJson(text, label = "MongoDB Extended JSON") {
+    if (typeof text !== "string" || !text.trim())
+      throw new Error(`${label} is required.`);
+    let value;
+    try {
+      value = JSON.parse(text);
+    } catch (error) {
+      throw new Error(`${label} is not valid JSON: ${error.message}`);
+    }
+    assertMongoNumberPrecision(text);
+    return value;
+  }
+  function parseMongoDocument(text, label = "MongoDB document") {
+    const value = parseMongoJson(text, label);
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      throw new Error(`${label} must be a JSON object.`);
+    return value;
+  }
+  function validateMongoFieldName(name) {
+    if (typeof name !== "string" || !name || name.startsWith("$") || name.includes(".") || name.includes("\x00") || MONGO_FORBIDDEN_FIELDS.has(name)) {
+      throw new Error("Field names must be nonempty and cannot start with $, contain dots or NUL, or use __proto__, prototype, or constructor.");
+    }
+    return name;
+  }
+  function validateMongoDocument(document2) {
+    for (const name of Object.keys(document2))
+      validateMongoFieldName(name);
+    return document2;
+  }
+  function mongoDocumentAt(page, rowIndex) {
+    if (!hasMongoSnapshots(page) || !page.rows[rowIndex])
+      throw new Error("The canonical MongoDB document snapshot is unavailable. Reload the collection.");
+    return parseMongoDocument(page.documents[rowIndex], "The original MongoDB document");
+  }
+  function mongoRowIdentity(page, rowIndex) {
+    try {
+      const document2 = mongoDocumentAt(page, rowIndex);
+      return hasOwn(document2, "_id") ? JSON.stringify(document2._id) : null;
+    } catch {
+      return null;
+    }
+  }
+  function requireMongoIdentity(page, rowIndex) {
+    const document2 = mongoDocumentAt(page, rowIndex);
+    if (!hasOwn(document2, "_id"))
+      throw new Error("The original MongoDB document has no _id and cannot be edited safely.");
+    return JSON.stringify(document2._id);
+  }
+  var mongoPendingKey = (id) => `${SEP}mongo${SEP}${id}`;
+  function mongoPendingOperation(t, id) {
+    if (!t || state.pendingFor !== pendingKeyFor(t))
+      return null;
+    return state.pending.get(mongoPendingKey(id)) ?? null;
+  }
+  function mongoDisplayValue(value) {
+    if (value === null)
+      return null;
+    if (typeof value === "string")
+      return value;
+    if (typeof value === "object")
+      return JSON.stringify(value);
+    return String(value);
+  }
+  function mongoDocumentWithPending(page, rowIndex, operation) {
+    const original = mongoDocumentAt(page, rowIndex);
+    if (!operation)
+      return original;
+    if (operation.op === "mongo-replace")
+      return parseMongoDocument(operation.document, "The pending MongoDB document");
+    if (operation.op !== "mongo-update")
+      return original;
+    const pairs = Object.entries(original).filter(([name]) => !operation.changes.has(name) || operation.changes.get(name).mode !== "missing");
+    for (const [name, change] of operation.changes) {
+      if (change.mode === "missing")
+        continue;
+      const value = change.mode === "null" ? null : parseMongoJson(change.value, `Pending field ${name}`);
+      const index = pairs.findIndex(([field3]) => field3 === name);
+      if (index >= 0)
+        pairs[index] = [name, value];
+      else
+        pairs.push([name, value]);
+    }
+    return Object.fromEntries(pairs);
+  }
+  function mongoCurrentDocument(page, rowIndex) {
+    const id = requireMongoIdentity(page, rowIndex);
+    return mongoDocumentWithPending(page, rowIndex, mongoPendingOperation(state.table, id));
+  }
+  function mongoFieldSnapshot(page, rowIndex, name) {
+    const columnIndex = page.columns.indexOf(name);
+    const id = requireMongoIdentity(page, rowIndex);
+    const operation = mongoPendingOperation(state.table, id);
+    const document2 = mongoDocumentWithPending(page, rowIndex, operation);
+    let present;
+    if (operation?.op === "mongo-replace")
+      present = hasOwn(document2, name);
+    else if (operation?.op === "mongo-update" && operation.changes.has(name))
+      present = operation.changes.get(name).mode !== "missing";
+    else
+      present = columnIndex >= 0 && page.present[rowIndex]?.[columnIndex] === true;
+    return { present, value: present ? document2[name] : undefined };
+  }
+  function mongoViewModel(page) {
+    const rows = page.rows.map((row) => [...row]);
+    const present = page.present.map((row) => [...row]);
+    if (state.pendingFor !== pendingKeyFor(state.table))
+      return { rows, present };
+    page.rows.forEach((row, rowIndex) => {
+      const id = mongoRowIdentity(page, rowIndex);
+      if (!id)
+        return;
+      const operation = mongoPendingOperation(state.table, id);
+      if (!operation || operation.op === "mongo-delete")
+        return;
+      const document2 = mongoDocumentWithPending(page, rowIndex, operation);
+      page.columns.forEach((name, columnIndex) => {
+        present[rowIndex][columnIndex] = hasOwn(document2, name);
+        rows[rowIndex][columnIndex] = present[rowIndex][columnIndex] ? mongoDisplayValue(document2[name]) : null;
+      });
+    });
+    return { rows, present };
+  }
+  function mongoTypeOf(value) {
+    if (value === null)
+      return "null";
+    if (Array.isArray(value))
+      return "array";
+    if (typeof value === "object") {
+      if (hasOwn(value, "$oid"))
+        return "objectid";
+      if (hasOwn(value, "$date"))
+        return "date";
+      if (hasOwn(value, "$numberDecimal"))
+        return "decimal128";
+      if (hasOwn(value, "$numberLong"))
+        return "long";
+      return "json";
+    }
+    return typeof value;
+  }
+  function mongoExample(type, name) {
+    if (name === "_id")
+      return `{"$oid":"64b64c2f0e6a4b8f9c0d1e2f"}`;
+    if (type === "objectid")
+      return `{"$oid":"64b64c2f0e6a4b8f9c0d1e2f"}`;
+    if (type === "date")
+      return `{"$date":"2026-01-01T00:00:00.000Z"}`;
+    if (type === "decimal128")
+      return `{"$numberDecimal":"12500.50"}`;
+    if (type === "double" || type === "number")
+      return `42.5 or {"$numberDouble":"42.5"}`;
+    if (/^(int|long|int32|int64)/.test(type))
+      return `42 or {"$numberLong":"9007199254740993"}`;
+    if (type === "boolean")
+      return "true";
+    if (type === "array")
+      return `[1,"two",true]`;
+    if (type === "json")
+      return `{"key":"value"}`;
+    return `"text"`;
+  }
+  function createMongoValueEditor({ name, type, value, present = true, immutable = false, allowObjectId = false }) {
+    let mode = immutable || present && value !== null ? "value" : present ? "null" : "missing";
+    let draft = present ? JSON.stringify(value) : '""';
+    let busy = false;
+    const root2 = el3("div", "typed-field wide");
+    const head = el3("div", "typed-field-head");
+    head.appendChild(el3("span", "typed-field-name", name));
+    head.appendChild(el3("span", "typed-field-type", type || mongoTypeOf(value)));
+    if (name === "_id")
+      head.appendChild(el3("span", "typed-constraint", immutable ? "IMMUTABLE" : "OPTIONAL"));
+    root2.appendChild(head);
+    const modes = el3("div", "typed-modes");
+    const modeButtons = new Map;
+    const addMode = (id, label) => {
+      const button2 = el3("button", mode === id ? "on" : "", label);
+      button2.type = "button";
+      button2.addEventListener("click", () => setMode(id));
+      modeButtons.set(id, button2);
+      modes.appendChild(button2);
+    };
+    if (!immutable) {
+      addMode("value", "Value");
+      addMode("null", "NULL");
+      addMode("missing", "Missing");
+      root2.appendChild(modes);
+    }
+    const row = el3("div", "typed-input-row");
+    const input = el3("textarea");
+    input.value = draft;
+    input.placeholder = mongoExample(type, name);
+    input.spellcheck = false;
+    input.setAttribute("aria-label", `${name} canonical Extended JSON value`);
+    row.appendChild(input);
+    root2.appendChild(row);
+    const tools = el3("div", "typed-tools");
+    if (allowObjectId) {
+      const generate = el3("button", "iconbtn", "Generate ObjectId");
+      generate.type = "button";
+      generate.addEventListener("click", () => {
+        if (busy || immutable)
+          return;
+        const bytes = new Uint8Array(12);
+        crypto.getRandomValues(bytes);
+        const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+        setMode("value");
+        input.value = JSON.stringify({ $oid: hex });
+        draft = input.value;
+        update();
+      });
+      tools.appendChild(generate);
+      root2.appendChild(tools);
+    }
+    const preview = el3("div", "typed-preview");
+    const error = el3("div", "typed-error");
+    error.setAttribute("role", "alert");
+    root2.append(preview, error);
+    root2.appendChild(el3("div", "typed-note", immutable ? "The original canonical _id is preserved and cannot be changed." : "Value accepts canonical Extended JSON, including quoted strings. NULL stores null; Missing removes/omits this top-level field."));
+    const update = () => {
+      if (mode === "value" && !input.disabled)
+        draft = input.value;
+      preview.innerHTML = "";
+      const valueLabel = mode === "null" ? "explicit null" : mode === "missing" ? "missing / unset" : draft || "(empty input is invalid)";
+      preview.append(document.createTextNode("Field state: "), el3("strong", null, valueLabel));
+      error.textContent = "";
+    };
+    function setMode(next) {
+      if (busy || immutable || !modeButtons.has(next))
+        return;
+      if (mode === "value")
+        draft = input.value;
+      mode = next;
+      if (mode === "value")
+        input.value = draft;
+      for (const [id, button2] of modeButtons)
+        button2.classList.toggle("on", id === mode);
+      input.disabled = mode !== "value";
+      update();
+    }
+    input.addEventListener("input", update);
+    setMode(mode);
+    if (immutable)
+      input.disabled = true;
+    update();
+    return {
+      root: root2,
+      focus: () => {
+        if (mode === "value")
+          setTimeout(() => input.focus(), 30);
+      },
+      setBusy(value2) {
+        busy = value2;
+        for (const button2 of modeButtons.values())
+          button2.disabled = busy;
+        for (const button2 of tools.children)
+          button2.disabled = busy;
+        input.disabled = busy || immutable || mode !== "value";
+      },
+      read: () => ({
+        mode,
+        value: mode === "value" ? JSON.stringify(parseMongoJson(input.value, `${name} value`)) : null
+      }),
+      validate() {
+        error.textContent = "";
+        if (mode !== "value")
+          return true;
+        try {
+          parseMongoJson(input.value, `${name} value`);
+          return true;
+        } catch (validationError) {
+          error.textContent = validationError.message;
+          input.focus();
+          return false;
+        }
+      }
+    };
+  }
+  function stageMongoCell(page, rowIndex, name, next) {
+    if (!ensurePendingScope())
+      return false;
+    const id = requireMongoIdentity(page, rowIndex);
+    validateMongoFieldName(name);
+    if (name === "_id")
+      throw new Error("MongoDB _id is immutable.");
+    const key = mongoPendingKey(id);
+    const originalText = page.documents[rowIndex];
+    const originalDocument = parseMongoDocument(originalText);
+    let operation = state.pending.get(key);
+    if (operation?.op === "mongo-delete")
+      return false;
+    if (operation?.op === "mongo-replace") {
+      const replacement = parseMongoDocument(operation.document);
+      const pairs = Object.entries(replacement).filter(([field3]) => field3 !== name);
+      if (next.mode !== "missing")
+        pairs.push([name, next.mode === "null" ? null : parseMongoJson(next.value)]);
+      const canonical = JSON.stringify(Object.fromEntries(pairs));
+      if (canonical === JSON.stringify(originalDocument))
+        state.pending.delete(key);
+      else
+        operation.document = canonical;
+      return true;
+    }
+    if (!operation) {
+      operation = {
+        op: "mongo-update",
+        pkVal: id,
+        original: originalText,
+        present: [...page.present[rowIndex]],
+        changes: new Map
+      };
+      state.pending.set(key, operation);
+    }
+    const columnIndex = page.columns.indexOf(name);
+    const oldPresent = columnIndex >= 0 && operation.present[columnIndex] === true;
+    const oldValue = oldPresent ? JSON.stringify(originalDocument[name]) : null;
+    const unchanged = next.mode === "missing" ? !oldPresent : next.mode === "null" ? oldPresent && oldValue === "null" : oldPresent && next.value === oldValue;
+    if (unchanged)
+      operation.changes.delete(name);
+    else
+      operation.changes.set(name, { mode: next.mode, value: next.value, oldPresent, oldValue });
+    if (!operation.changes.size)
+      state.pending.delete(key);
+    if (!state.pending.size)
+      state.pendingFor = null;
+    return true;
+  }
+  function editMongoCellDialog(rowIndex, col) {
+    const t = state.table;
+    const connection = state.connId;
+    const page = t?.page;
+    if (!t || !page || currentKind() !== "mongodb")
+      return;
+    let current;
+    let id;
+    try {
+      current = mongoFieldSnapshot(page, rowIndex, col);
+      id = requireMongoIdentity(page, rowIndex);
+    } catch (error) {
+      toast("error", error.message);
+      return;
+    }
+    if (mongoPendingOperation(t, id)?.op === "mongo-delete") {
+      toast("info", "This document is marked for deletion. Undo the deletion before editing it.");
+      return;
+    }
+    const meta = page.columnMeta.find((item) => item.name === col) || { name: col, type: mongoTypeOf(current.value) };
+    const editor = createMongoValueEditor({ name: col, type: meta.type, ...current });
+    let dialogError;
+    dialog({
+      title: `Edit ${t.schema}.${t.name}.${col}`,
+      className: "typed-dialog",
+      build: (body) => {
+        body.appendChild(editor.root);
+        body.appendChild(el3("div", "typed-note", "The canonical field change is staged locally. Apply writes this document with its original snapshot; other documents are not part of a transaction. ⌘/Ctrl+Enter stages the change."));
+        dialogError = el3("div", "typed-error");
+        dialogError.setAttribute("role", "alert");
+        body.appendChild(dialogError);
+        editor.focus();
+      },
+      actions: [
+        { label: "Cancel", value: null },
+        {
+          label: "Stage change",
+          kind: "primary",
+          shortcut: true,
+          onClick: (done) => {
+            if (!isCurrentTableContext(t, connection) || t.page !== page) {
+              dialogError.textContent = "The collection snapshot changed. Close this editor and reload before editing.";
+              return false;
+            }
+            if (!editor.validate())
+              return false;
+            try {
+              const next = editor.read();
+              const unchanged = next.mode === "missing" ? !current.present : next.mode === "null" ? current.present && current.value === null : current.present && next.value === JSON.stringify(current.value);
+              if (unchanged) {
+                done(null);
+                return;
+              }
+              if (!stageMongoCell(page, rowIndex, col, next)) {
+                dialogError.textContent = "This document is marked for deletion. The change was not staged.";
+                return false;
+              }
+              toast("info", `Document change staged. Pending documents: ${pendingCount()}. Click “Apply”.`);
+              done(true);
+              render();
+            } catch (error) {
+              dialogError.textContent = error.message;
+              return false;
+            }
+          }
+        }
+      ]
+    });
+  }
+  function stageMongoReplacement(page, rowIndex, document2) {
+    if (!ensurePendingScope())
+      return false;
+    const id = requireMongoIdentity(page, rowIndex);
+    const original = page.documents[rowIndex];
+    const key = mongoPendingKey(id);
+    if (state.pending.get(key)?.op === "mongo-delete")
+      return false;
+    const canonical = JSON.stringify(document2);
+    if (canonical === JSON.stringify(parseMongoDocument(original))) {
+      state.pending.delete(key);
+      if (!state.pending.size)
+        state.pendingFor = null;
+    } else {
+      state.pending.set(key, { op: "mongo-replace", pkVal: id, original, document: canonical });
+    }
+    return true;
+  }
+  function mongoDocumentDialog({ table: t, connection, rowIndex = null, insert = false }) {
+    const page = t?.page;
+    if (!t || !page || !insert && rowIndex === null)
+      return;
+    let originalId = null;
+    let initial;
+    try {
+      if (insert)
+        initial = {};
+      else {
+        originalId = requireMongoIdentity(page, rowIndex);
+        if (mongoPendingOperation(t, originalId)?.op === "mongo-delete") {
+          toast("info", "This document is marked for deletion. Undo the deletion before editing it.");
+          return;
+        }
+        initial = mongoCurrentDocument(page, rowIndex);
+      }
+    } catch (error) {
+      toast("error", error.message);
+      return;
+    }
+    let activeTab = "form";
+    let busy = false;
+    let bodyRef;
+    let errorRef;
+    let content;
+    let editors = [];
+    let jsonInput;
+    let jsonText = JSON.stringify(initial, null, 2);
+    const tabButtons = new Map;
+    const readForm = () => {
+      const pairs = [];
+      for (const { name, editor } of editors) {
+        if (!editor.validate())
+          throw new Error(`Correct ${name} before continuing.`);
+        const next = editor.read();
+        if (next.mode === "missing")
+          continue;
+        pairs.push([name, next.mode === "null" ? null : parseMongoJson(next.value, `${name} value`)]);
+      }
+      return validateMongoDocument(Object.fromEntries(pairs));
+    };
+    const readJson = () => validateMongoDocument(parseMongoDocument(jsonInput.value, "The MongoDB document"));
+    function buildForm(document2) {
+      content.innerHTML = "";
+      editors = [];
+      const fields = el3("div", "document-fields");
+      const entries = Object.entries(document2);
+      entries.sort(([left], [right]) => left === "_id" ? -1 : right === "_id" ? 1 : 0);
+      if (insert && !entries.some(([name2]) => name2 === "_id"))
+        entries.unshift(["_id", undefined]);
+      for (const [name2, value] of entries) {
+        const present = value !== undefined || hasOwn(document2, name2);
+        const metaType = page.columnMeta.find((item) => item.name === name2)?.type;
+        const editor = createMongoValueEditor({
+          name: name2,
+          type: metaType || mongoTypeOf(value),
+          value,
+          present,
+          immutable: !insert && name2 === "_id",
+          allowObjectId: insert && name2 === "_id"
+        });
+        editors.push({ name: name2, editor });
+        fields.appendChild(editor.root);
+      }
+      content.appendChild(fields);
+      const addRow = el3("div", "document-new-field");
+      const name = el3("input");
+      name.type = "text";
+      name.placeholder = "newTopLevelField";
+      const label = el3("label", "fld", "Add top-level field");
+      label.appendChild(name);
+      const add = el3("button", "btn", "Add field");
+      add.addEventListener("click", () => {
+        try {
+          const fieldName = validateMongoFieldName(name.value);
+          if (editors.some((editor) => editor.name === fieldName))
+            throw new Error(`${fieldName} is already listed. Choose Value in its existing row.`);
+          const next = readForm();
+          next[fieldName] = "";
+          buildForm(next);
+        } catch (error) {
+          errorRef.textContent = error.message;
+        }
+      });
+      addRow.append(label, add);
+      content.appendChild(addRow);
+      content.appendChild(el3("div", "typed-note", insert ? "Form mode edits top-level fields only; nested values remain canonical Extended JSON. _id is optional. MongoDB generates it unless you explicitly enter one or choose Generate ObjectId." : "Form mode edits top-level fields with Value, NULL and Missing. Use JSON for nested restructuring or field renaming. Saving stages a full-document replacement."));
+    }
+    function paintTabs() {
+      for (const [name, button2] of tabButtons) {
+        button2.classList.toggle("on", name === activeTab);
+        button2.setAttribute("aria-selected", name === activeTab ? "true" : "false");
+      }
+    }
+    function showTab(next) {
+      if (busy || next === activeTab)
+        return;
+      try {
+        if (activeTab === "form") {
+          const document2 = readForm();
+          jsonText = JSON.stringify(document2, null, 2);
+        } else {
+          initial = readJson();
+        }
+        activeTab = next;
+        errorRef.textContent = "";
+        if (activeTab === "json") {
+          content.innerHTML = "";
+          jsonInput = el3("textarea", "document-json");
+          jsonInput.value = jsonText;
+          jsonInput.spellcheck = false;
+          jsonInput.setAttribute("aria-label", "Complete canonical Extended JSON document");
+          jsonInput.addEventListener("input", () => {
+            jsonText = jsonInput.value;
+          });
+          content.appendChild(jsonInput);
+          content.appendChild(el3("div", "typed-note", 'Complete canonical Extended JSON document. Examples: {"$oid":"…"}, {"$date":"2026-01-01T00:00:00.000Z"}, {"$numberLong":"9007199254740993"}.'));
+        } else {
+          buildForm(initial);
+        }
+        paintTabs();
+      } catch (error) {
+        errorRef.textContent = error.message;
+      }
+    }
+    dialog({
+      title: `${insert ? "New document" : "Edit document"}: ${t.schema}.${t.name}`,
+      className: "typed-dialog document-dialog",
+      isBusy: () => busy,
+      build: (body) => {
+        bodyRef = body;
+        const tabs = el3("div", "document-tabs");
+        tabs.setAttribute("role", "tablist");
+        for (const [id, label] of [["form", "Form"], ["json", "JSON"]]) {
+          const button2 = el3("button", id === activeTab ? "on" : "", label);
+          button2.type = "button";
+          button2.setAttribute("role", "tab");
+          button2.addEventListener("click", () => showTab(id));
+          tabButtons.set(id, button2);
+          tabs.appendChild(button2);
+        }
+        body.appendChild(tabs);
+        content = el3("div");
+        body.appendChild(content);
+        errorRef = el3("div", "typed-error");
+        errorRef.setAttribute("role", "alert");
+        body.appendChild(errorRef);
+        body.appendChild(el3("div", "typed-note", `${insert ? "Insert writes only this document." : "Review and Apply writes this replacement with an exact-original conflict check."} ⌘/Ctrl+Enter ${insert ? "inserts" : "stages"} the document.`));
+        buildForm(initial);
+      },
+      actions: [
+        { label: "Cancel", value: null },
+        {
+          label: insert ? "Insert document" : "Stage replacement",
+          kind: "primary",
+          shortcut: true,
+          onClick: async (done) => {
+            if (busy)
+              return false;
+            if (!isCurrentTableContext(t, connection) || t.page !== page) {
+              errorRef.textContent = "The collection context or snapshot changed. Close this editor and reload before continuing.";
+              return false;
+            }
+            let document2;
+            try {
+              document2 = activeTab === "form" ? readForm() : readJson();
+              if (!insert) {
+                if (!hasOwn(document2, "_id") || JSON.stringify(document2._id) !== originalId)
+                  throw new Error("The replacement must preserve the original canonical _id.");
+                if (!stageMongoReplacement(page, rowIndex, document2))
+                  throw new Error("This document is marked for deletion. Undo the deletion first.");
+              }
+            } catch (error) {
+              errorRef.textContent = error.message;
+              return false;
+            }
+            if (!insert) {
+              toast("info", `Document replacement staged. Pending documents: ${pendingCount()}. Click “Apply”.`);
+              done(true);
+              render();
+              return;
+            }
+            busy = true;
+            errorRef.textContent = "";
+            editors.forEach(({ editor }) => editor.setBusy(true));
+            const controls = [...bodyRef.parentElement.querySelectorAll("button, input, textarea, select")];
+            const disabled = controls.map((control) => control.disabled);
+            controls.forEach((control) => {
+              control.disabled = true;
+            });
+            try {
+              const result = await svc("POST", "/mongo/document", {
+                body: { connection, schema: t.schema, table: t.name, document: JSON.stringify(document2) }
+              });
+              toast("success", `Inserted ${result.count ?? 1} document${result.insertedId ? ` with _id ${result.insertedId}` : ""}.`);
+              done(true);
+              if (state.connId === connection && state.table === t && state.mode === "data") {
+                await reloadTable(page.offset, undefined, { target: t, preservePending: true });
+              } else if (state.connId === connection && state.openTables.includes(t)) {
+                t.page = null;
+              }
+            } catch (error) {
+              busy = false;
+              controls.forEach((control, index) => {
+                control.disabled = disabled[index];
+              });
+              editors.forEach(({ editor }) => editor.setBusy(false));
+              errorRef.textContent = error.message;
+              toast("error", error.message);
+              return false;
+            }
+          }
+        }
+      ]
+    });
+  }
+  async function deleteMongoDocumentDialog(rowIndex) {
+    const t = state.table;
+    const connection = state.connId;
+    const page = t?.page;
+    if (!t || !page || currentKind() !== "mongodb")
+      return;
+    let id;
+    let original;
+    try {
+      id = requireMongoIdentity(page, rowIndex);
+      original = page.documents[rowIndex];
+    } catch (error) {
+      toast("error", error.message);
+      return;
+    }
+    const key = mongoPendingKey(id);
+    const already = state.pending.get(key)?.op === "mongo-delete";
+    const ok = await confirmDialog(already ? `Undo deletion of MongoDB document _id = ${id}?` : `Delete MongoDB document _id = ${id} from ${t.schema}.${t.name}?
+
+The deletion is staged. Apply uses the exact original document and reports conflicts without overwriting them.`, { yes: already ? "Undo deletion" : "Delete document" });
+    if (!ok || !isCurrentTableContext(t, connection) || t.page !== page)
+      return;
+    if (!ensurePendingScope())
+      return;
+    if (already)
+      state.pending.delete(key);
+    else {
+      state.pending.delete(key);
+      state.pending.set(key, { op: "mongo-delete", pkVal: id, original });
+    }
+    if (!state.pending.size)
+      state.pendingFor = null;
+    render();
+  }
+  function openMongoInspector(row, rowIndex) {
+    const t = state.table;
+    const connection = state.connId;
+    const page = t?.page;
+    if (!t || !page || rowIndex === undefined)
+      return;
+    let id;
+    try {
+      id = requireMongoIdentity(page, rowIndex);
+    } catch (error) {
+      toast("error", error.message);
+      return;
+    }
+    const pending = mongoPendingOperation(t, id);
+    const rowDeleted = pending?.op === "mongo-delete";
+    const writable = !page.readOnly && !t.loading && hasMongoSnapshots(page);
+    const wrap = el3("div", "sheetwrap");
+    const sheet = el3("div", "sheet");
+    const header = el3("header");
+    header.appendChild(el3("h3", null, `${t.schema}.${t.name} — _id = ${id}`));
+    const closeButton = el3("button", "iconbtn", "✕");
+    closeButton.addEventListener("click", close);
+    header.appendChild(closeButton);
+    sheet.appendChild(header);
+    const body = el3("div", "sbody");
+    for (const meta of page.columnMeta) {
+      const current = mongoFieldSnapshot(page, rowIndex, meta.name);
+      const block = el3("div", "srow");
+      const head = el3("div", "sh");
+      head.appendChild(typeBadge(meta.type));
+      head.appendChild(el3("span", null, `${meta.name} — ${meta.type}${meta.name === "_id" ? " · immutable" : ""}`));
+      if (writable && meta.name !== "_id" && !rowDeleted) {
+        const edit = el3("button", "iconbtn", "Edit");
+        edit.addEventListener("click", () => {
+          close();
+          if (isCurrentTableContext(t, connection) && t.page === page)
+            editMongoCellDialog(rowIndex, meta.name);
+        });
+        head.appendChild(edit);
+      }
+      block.appendChild(head);
+      const sv = el3("div", `sv${!current.present || current.value === null ? " null" : ""}`);
+      const canonical = current.present ? JSON.stringify(current.value) : "Missing field";
+      sv.textContent = current.present && current.value === null ? "NULL (explicit null)" : canonical;
+      if (current.present && current.value !== null && prettyValue(canonical)) {
+        sv.classList.add("clickable");
+        sv.addEventListener("click", () => valueViewDialog(meta.name, `canonical ${meta.type}`, canonical, {
+          onEdit: writable && meta.name !== "_id" && !rowDeleted ? () => {
+            close();
+            if (isCurrentTableContext(t, connection) && t.page === page)
+              editMongoCellDialog(rowIndex, meta.name);
+          } : undefined
+        }));
+      }
+      block.appendChild(sv);
+      body.appendChild(block);
+    }
+    sheet.appendChild(body);
+    const footer = el3("footer");
+    const copy = el3("button", "btn", "Copy document");
+    copy.addEventListener("click", async () => {
+      try {
+        const document2 = mongoCurrentDocument(page, rowIndex);
+        await host.writeClipboard(JSON.stringify(document2, null, 2));
+        toast("success", "Canonical document copied.");
+      } catch (error) {
+        toast("error", error.message);
+      }
+    });
+    footer.appendChild(copy);
+    if (writable) {
+      const edit = el3("button", "btn primary", "Edit document");
+      edit.disabled = rowDeleted;
+      edit.addEventListener("click", () => {
+        close();
+        if (!rowDeleted && isCurrentTableContext(t, connection) && t.page === page)
+          mongoDocumentDialog({ table: t, connection, rowIndex });
+      });
+      footer.appendChild(edit);
+      const del = el3("button", "btn danger", rowDeleted ? "Undo deletion" : "Delete document");
+      del.addEventListener("click", async () => {
+        close();
+        if (isCurrentTableContext(t, connection) && t.page === page)
+          await deleteMongoDocumentDialog(rowIndex);
+      });
+      footer.appendChild(del);
+    }
+    sheet.appendChild(footer);
+    wrap.appendChild(sheet);
+    wrap.addEventListener("mousedown", (event) => {
+      if (event.target === wrap)
+        close();
+    });
+    const onKey = (event) => {
+      if (document.querySelector(".overlay"))
+        return;
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        close();
+      }
+    };
+    function close() {
+      wrap.remove();
+      document.removeEventListener("keydown", onKey, true);
+    }
+    document.addEventListener("keydown", onKey, true);
+    root.appendChild(wrap);
+  }
+  function mongoReviewValue(present, canonical) {
+    if (!present)
+      return "Missing";
+    if (canonical === "null")
+      return "NULL";
+    return canonical;
+  }
+  async function applyMongoPendingDialog() {
+    const t = state.table;
+    const page = t?.page;
+    if (!t || !page || state.batchBusy || currentKind() !== "mongodb")
+      return;
+    const connection = state.connId;
+    const scope = pendingKeyFor(t);
+    const initialEntries = [...state.pending.entries()];
+    if (!initialEntries.length)
+      return;
+    let applying = false;
+    let reviewBody;
+    let errorBox;
+    let applyButton;
+    const currentEntries = () => state.pendingFor === scope ? [...state.pending.entries()] : [];
+    const paintReview = (entries) => {
+      reviewBody.innerHTML = "";
+      const table = el3("table", "review");
+      for (const [, operation] of entries) {
+        if (operation.op === "mongo-delete") {
+          const tr = el3("tr", "del");
+          const td = el3("td", "c", `delete document _id = ${operation.pkVal}`);
+          td.colSpan = 3;
+          tr.appendChild(td);
+          table.appendChild(tr);
+        } else if (operation.op === "mongo-replace") {
+          const tr = el3("tr");
+          tr.appendChild(el3("td", "c", `replace document _id = ${operation.pkVal}`));
+          tr.appendChild(el3("td", "o", "exact original"));
+          tr.appendChild(el3("td", "n", "full replacement"));
+          table.appendChild(tr);
+          const detailRow = el3("tr");
+          const td = el3("td");
+          td.colSpan = 3;
+          const details = el3("details");
+          details.appendChild(el3("summary", null, "Review original and canonical replacement"));
+          details.appendChild(el3("div", "typed-note", "Original"));
+          const originalPre = el3("pre");
+          originalPre.textContent = JSON.stringify(parseMongoDocument(operation.original), null, 2);
+          details.appendChild(originalPre);
+          details.appendChild(el3("div", "typed-note", "Replacement"));
+          const replacementPre = el3("pre");
+          replacementPre.textContent = JSON.stringify(parseMongoDocument(operation.document), null, 2);
+          details.appendChild(replacementPre);
+          td.appendChild(details);
+          detailRow.appendChild(td);
+          table.appendChild(detailRow);
+        } else {
+          for (const [name, change] of operation.changes) {
+            const tr = el3("tr");
+            tr.appendChild(el3("td", "c", `_id=${operation.pkVal} · ${name}`));
+            tr.appendChild(el3("td", "o", mongoReviewValue(change.oldPresent, change.oldValue)));
+            tr.appendChild(el3("td", "n", mongoReviewValue(change.mode !== "missing", change.mode === "null" ? "null" : change.value)));
+            table.appendChild(tr);
+          }
+        }
+      }
+      reviewBody.appendChild(table);
+      if (!entries.length)
+        reviewBody.appendChild(el3("p", null, "No pending MongoDB documents remain."));
+    };
+    state.batchBusy = true;
+    try {
+      const ok = await dialog({
+        title: `Apply ${initialEntries.length} MongoDB ${plural(initialEntries.length, "document")} — ${t.schema}.${t.name}`,
+        className: "typed-dialog document-dialog",
+        isBusy: () => applying,
+        build: (body) => {
+          reviewBody = el3("div", "document-review");
+          body.appendChild(reviewBody);
+          paintReview(initialEntries);
+          body.appendChild(el3("p", null, "Documents are applied sequentially, one operation per document. There is no cross-document transaction. Successful documents are removed from pending even if a later document conflicts or fails."));
+          errorBox = el3("div", "typed-error");
+          errorBox.setAttribute("role", "alert");
+          body.appendChild(errorBox);
+        },
+        actions: [
+          { label: "Discard all", kind: "danger", onClick: (done) => {
+            if (!applying) {
+              clearPending();
+              done(null);
+              render();
+            }
+          } },
+          { label: "Close", value: null },
+          {
+            label: `Apply (${initialEntries.length})`,
+            kind: "primary",
+            shortcut: true,
+            onClick: async (done) => {
+              if (applying)
+                return false;
+              if (!isCurrentTableContext(t, connection)) {
+                errorBox.textContent = "The collection context changed. Close this review before applying.";
+                return false;
+              }
+              const entries = currentEntries();
+              if (!entries.length) {
+                done(true);
+                return;
+              }
+              applying = true;
+              errorBox.textContent = "";
+              const buttons = [...reviewBody.parentElement.parentElement.querySelectorAll(".acts button")];
+              applyButton = buttons[buttons.length - 1];
+              buttons.forEach((button2) => {
+                button2.disabled = true;
+              });
+              const failures = [];
+              let succeeded = 0;
+              for (const [key, operation] of entries) {
+                if (state.pending.get(key) !== operation)
+                  continue;
+                const body = { connection, schema: t.schema, table: t.name };
+                try {
+                  if (operation.op === "mongo-update") {
+                    const setEntries = [];
+                    const unset = [];
+                    for (const [name, change] of operation.changes) {
+                      if (change.mode === "missing")
+                        unset.push(name);
+                      else
+                        setEntries.push([name, change.mode === "null" ? "null" : change.value]);
+                    }
+                    const set = Object.fromEntries(setEntries);
+                    await svc("PATCH", "/mongo/document", { body: { ...body, id: operation.pkVal, original: operation.original, set, unset } });
+                  } else if (operation.op === "mongo-replace") {
+                    await svc("PUT", "/mongo/document", { body: { ...body, original: operation.original, document: operation.document } });
+                  } else if (operation.op === "mongo-delete") {
+                    await svc("DELETE", "/mongo/document", { body: { ...body, id: operation.pkVal, original: operation.original } });
+                  }
+                  if (state.pending.get(key) === operation)
+                    state.pending.delete(key);
+                  succeeded += 1;
+                } catch (error) {
+                  failures.push(`_id ${operation.pkVal}: ${error.message}`);
+                }
+              }
+              if (!state.pending.size && state.pendingFor === scope)
+                state.pendingFor = null;
+              const remaining = currentEntries();
+              paintReview(remaining);
+              if (succeeded) {
+                toast(failures.length ? "info" : "success", failures.length ? `Applied ${succeeded} ${plural(succeeded, "document")}; ${failures.length} failed and remain pending.` : `Applied ${succeeded} MongoDB ${plural(succeeded, "document")}.`);
+                if (state.connId === connection && state.table === t && state.mode === "data") {
+                  await reloadTable(page.offset, undefined, { target: t, preservePending: true });
+                } else if (state.connId === connection && state.openTables.includes(t)) {
+                  t.page = null;
+                }
+              }
+              if (!remaining.length) {
+                done(true);
+                render();
+                return;
+              }
+              applying = false;
+              buttons.forEach((button2) => {
+                button2.disabled = false;
+              });
+              applyButton.textContent = `Retry remaining (${remaining.length})`;
+              errorBox.textContent = `${failures.length ? failures.join(`
+`) : "Some documents were not applied."}
+
+Successful documents were removed. The entries above remain pending; no conflict was overwritten. Reload after closing if you need a fresh original.`;
+              toast("error", errorBox.textContent);
+              return false;
+            }
+          }
+        ]
+      });
+      if (ok)
+        render();
+    } finally {
+      state.batchBusy = false;
+    }
+  }
+  function openRedisEditorForRow(t, connection, row) {
+    const page = t?.page;
+    if (!page || currentKind() !== "redis")
+      return;
+    const keyIndex = page.columns.indexOf("key");
+    const typeIndex = page.columns.indexOf("type");
+    const key = row[keyIndex];
+    const type = row[typeIndex];
+    if (!key || !type)
+      return toast("error", "The Redis key or type is unavailable. Reload the key list.");
+    redisPanel.openKey({
+      connection,
+      key: String(key),
+      type: String(type),
+      onListRefresh: () => refreshRedisTable(t, connection)
+    });
+  }
+  async function refreshRedisTable(t, connection) {
+    if (state.connId !== connection || !state.openTables.includes(t))
+      return;
+    if (state.table === t && state.mode === "data") {
+      await reloadTable(t.page?.offset ?? 0, undefined, { target: t, preservePending: true });
+    } else {
+      t.page = null;
+    }
   }
   async function deleteConnection(id) {
     const connection = state.conns.find((item) => item.id === id);
@@ -4528,26 +6661,26 @@ The deletion will be staged and applied when you click “Apply”.`, { yes: alr
       build: (body, done) => {
         dialogBodyRef = body;
         body.style.display = "block";
-        const layout = el2("div", "connection-create");
-        const tabs = el2("div", "dbtype-tabs");
+        const layout = el3("div", "connection-create");
+        const tabs = el3("div", "dbtype-tabs");
         tabs.setAttribute("role", "tablist");
-        const form = el2("div", "connection-form");
+        const form = el3("div", "connection-form");
         layout.append(tabs, form);
         body.appendChild(layout);
         let selectedKind = DB_TYPES[currentKind()] ? currentKind() : "postgres";
-        const heading = el2("div", "form-title");
-        const note = el2("p", "form-note", "The connection will be tested before saving.");
-        const nameLabel = el2("label", "fld", "Name");
-        const nameInput = el2("input");
+        const heading = el3("div", "form-title");
+        const note = el3("p", "form-note", "The connection will be tested before saving.");
+        const nameLabel = el3("label", "fld", "Name");
+        const nameInput = el3("input");
         nameInput.type = "text";
         nameInput.placeholder = "my-db";
         nameLabel.appendChild(nameInput);
-        const dsnLabel = el2("label", "fld", "DSN");
-        const dsnInput = el2("input");
+        const dsnLabel = el3("label", "fld", "DSN");
+        const dsnInput = el3("input");
         dsnInput.type = "text";
         dsnInput.spellcheck = false;
         dsnLabel.appendChild(dsnInput);
-        const add = el2("button", "btn primary", "Test and add");
+        const add = el3("button", "btn primary", "Test and add");
         add.style.alignSelf = "flex-start";
         form.append(heading, note, nameLabel, dsnLabel, add);
         const paint = () => {
@@ -4561,10 +6694,10 @@ The deletion will be staged and applied when you click “Apply”.`, { yes: alr
           }
         };
         for (const [kind, type] of Object.entries(DB_TYPES)) {
-          const button2 = el2("button", "dbtype");
+          const button2 = el3("button", "dbtype");
           button2.dataset.kind = kind;
           button2.setAttribute("role", "tab");
-          button2.append(el2("span", "dbmonogram", type.short), el2("span", null, type.label));
+          button2.append(el3("span", "dbmonogram", type.short), el3("span", null, type.label));
           button2.addEventListener("click", () => {
             if (selectedKind === kind)
               return;
@@ -4630,6 +6763,8 @@ The deletion will be staged and applied when you click “Apply”.`, { yes: alr
     render();
     document.addEventListener("keydown", (event) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        if (document.querySelector(".overlay, .sheetwrap"))
+          return;
         event.preventDefault();
         openPalette();
         return;

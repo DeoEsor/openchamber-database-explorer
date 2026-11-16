@@ -1,6 +1,7 @@
 // DB Connect panel: PostgreSQL, MongoDB and Redis explorer.
 import { connectHost, HostRequestError } from "@openchamber/sdk";
 import { applyHostReady, GUEST_UI_LOOK_CSS } from "@openchamber/sdk/ui";
+import { createRedisPanel, REDIS_EDITOR_CSS } from "./redis-editor.js";
 
 const host = connectHost();
 
@@ -169,6 +170,7 @@ const uuidShort = (s) => (s.length > 16 ? `${s.slice(0, 8)}…${s.slice(-6)}` : 
 
 const CSS = `
 ${GUEST_UI_LOOK_CSS}
+${REDIS_EDITOR_CSS}
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body { font: 12px/1.4 var(--oc-font, system-ui, sans-serif); color: var(--oc-fg, #eee); background: var(--oc-bg, #1e1e1e); }
@@ -447,6 +449,52 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
   font: 12px/1.5 var(--oc-mono, ui-monospace, monospace); resize: vertical; min-height: 72px;
 }
 .dialog textarea:focus { outline: 1px solid var(--oc-focus, #4c8dff); }
+.dialog-body { display: contents; }
+.dialog.typed-dialog { max-width: 560px; padding: 0; gap: 0; overflow: hidden; }
+.typed-dialog > h3 { padding: 14px 16px 11px; border-bottom: 1px solid var(--oc-border, #333); }
+.typed-dialog .dialog-body { display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow: auto; padding: 14px 16px; }
+.typed-dialog .acts { flex: none; padding: 10px 16px; border-top: 1px solid var(--oc-border, #333); background: var(--oc-elevated, #262626); }
+.typed-field { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.typed-field-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.typed-field-name { color: var(--oc-fg, #eee); font: 600 12px var(--oc-mono, ui-monospace, monospace); overflow: hidden; text-overflow: ellipsis; }
+.typed-field-type, .typed-constraint { flex: none; color: var(--oc-muted, #999); font: 9.5px var(--oc-mono, ui-monospace, monospace); padding: 1px 5px; border: 1px solid var(--oc-border, #3a3a3a); border-radius: 4px; }
+.typed-constraint { color: var(--oc-warning, #d29922); }
+.typed-modes { display: flex; gap: 2px; align-self: flex-start; padding: 2px; background: var(--oc-bg, #1e1e1e); border: 1px solid var(--oc-border, #333); border-radius: 6px; }
+.typed-modes button { border: 0; border-radius: 4px; padding: 3px 9px; background: transparent; color: var(--oc-muted, #999); cursor: pointer; font: inherit; font-size: 10px; }
+.typed-modes button.on { color: var(--oc-fg, #eee); background: var(--oc-hover, #363636); box-shadow: 0 1px 2px rgb(0 0 0 / .25); }
+.typed-input-row { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.typed-input-row > input, .typed-input-row > textarea { flex: 1; min-width: 0; }
+.dialog .typed-input-row input[type=date], .dialog .typed-input-row input[type=time], .dialog .typed-input-row input[type=datetime-local], .dialog .typed-input-row select {
+  padding: 5px 8px; border-radius: var(--oc-radius, 8px); border: 1px solid var(--oc-border, #333);
+  background: var(--oc-bg, #1e1e1e); color: var(--oc-fg, #eee); font: 12px/1.4 var(--oc-mono, ui-monospace, monospace); color-scheme: dark;
+}
+.typed-input-row input:disabled, .typed-input-row textarea:disabled, .typed-input-row select:disabled { opacity: .48; cursor: not-allowed; }
+.typed-tools { display: flex; gap: 5px; flex-wrap: wrap; }
+.typed-tools .iconbtn { flex: none; }
+.typed-preview { color: var(--oc-muted, #999); font: 10px/1.45 var(--oc-mono, ui-monospace, monospace); word-break: break-all; }
+.typed-preview strong { color: var(--oc-primary-text, #9dc1ff); font-weight: 500; }
+.typed-error { color: var(--oc-error-text, #f88); font-size: 11px; min-height: 0; }
+.typed-note { color: var(--oc-muted, #999); font-size: 10.5px; line-height: 1.5; }
+.typed-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.typed-form-grid .typed-field.wide { grid-column: 1 / -1; }
+@media (max-width: 560px) { .typed-form-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* MongoDB canonical document editing */
+.dialog.document-dialog { max-width: 680px; }
+.document-tabs { display: flex; gap: 3px; align-self: flex-start; padding: 2px; border: 1px solid var(--oc-border, #333); border-radius: 6px; background: var(--oc-bg, #1e1e1e); }
+.document-tabs button { border: 0; border-radius: 4px; padding: 4px 12px; background: transparent; color: var(--oc-muted, #999); cursor: pointer; font: inherit; font-size: 10.5px; }
+.document-tabs button.on { color: var(--oc-fg, #eee); background: var(--oc-hover, #363636); }
+.document-json { min-height: 300px; max-height: 50vh; width: 100%; }
+.document-fields { display: flex; flex-direction: column; gap: 11px; }
+.document-fields .typed-field { padding-bottom: 10px; border-bottom: 1px solid color-mix(in srgb, var(--oc-border, #333) 60%, transparent); }
+.document-fields .typed-field:last-child { border-bottom: 0; }
+.document-new-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; align-items: end; padding-top: 4px; }
+.document-new-field label { min-width: 0; }
+.document-review { max-height: 50vh; overflow: auto; }
+.document-review pre { margin: 4px 0 0; max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 10px/1.45 var(--oc-mono, ui-monospace, monospace); }
+.grid td.missing { color: var(--oc-subtle, #666); font-style: italic; }
+.grid tr.openable { cursor: pointer; }
+@media (max-width: 560px) { .document-json { min-height: 240px; } }
 
 /* pending review */
 .review { width: 100%; border-collapse: collapse; font: 11.5px/1.5 var(--oc-mono, ui-monospace, monospace); }
@@ -472,7 +520,7 @@ table.grid { border-collapse: collapse; width: 100%; font: 10.5px/1.45 var(--oc-
 .sheet .srow .sv { font: 12px/1.5 var(--oc-mono, ui-monospace, monospace); white-space: pre-wrap; word-break: break-word; }
 .sheet .srow .sv.clickable { cursor: pointer; color: var(--oc-primary-text, #9dc1ff); }
 .sheet .srow .sv.null { color: var(--oc-subtle, #666); font-style: italic; }
-.sheet footer { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--oc-border, #2a2a2a); }
+.sheet footer { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px 12px; border-top: 1px solid var(--oc-border, #2a2a2a); }
 
 /* menu */
 .menu {
@@ -556,11 +604,11 @@ function dialog({ title, build, actions, className = "", isBusy = () => false })
       document.removeEventListener("keydown", onKey, true);
       resolve(value);
     };
-    const body = el("div");
-    body.style.display = "contents";
+    const body = el("div", "dialog-body");
     if (build) build(body, done);
     box.appendChild(body);
     const acts = el("div", "acts");
+    const actionButtons = [];
     for (const action of actions) {
       const btn = el("button", `btn ${action.kind ?? ""}`, action.label);
       btn.addEventListener("click", async () => {
@@ -571,13 +619,23 @@ function dialog({ title, build, actions, className = "", isBusy = () => false })
           done(action.value);
         }
       });
+      actionButtons.push({ action, btn });
       acts.appendChild(btn);
     }
     box.appendChild(acts);
     const onKey = (event) => {
+      const overlays = document.querySelectorAll(".overlay");
+      if (overlays.length && overlays[overlays.length - 1] !== overlay) return;
       if (event.key === "Escape") {
         event.stopPropagation();
         if (!isBusy()) done(null);
+      } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+        const submit = actionButtons.find(({ action, btn }) => action.shortcut && !btn.disabled);
+        if (submit && !isBusy()) {
+          event.preventDefault();
+          event.stopPropagation();
+          submit.btn.click();
+        }
       }
     };
     document.addEventListener("keydown", onKey, true);
@@ -595,9 +653,11 @@ const confirmDialog = (text, { danger = true, yes = "Run" } = {}) =>
     build: (body) => body.appendChild(el("p", null, text)),
     actions: [
       { label: "Cancel", value: false },
-      { label: yes, value: true, kind: danger ? "danger" : "primary" },
+      { label: yes, value: true, kind: danger ? "danger" : "primary", shortcut: true },
     ],
   }).then((v) => v === true);
+
+const redisPanel = createRedisPanel({ svc, dialog, confirmDialog, toast });
 
 // ---------- dropdown menu ----------
 
@@ -1110,14 +1170,23 @@ function stageDelete(pkVal) {
 function pendingMarks() {
   const cells = new Set();
   const deleted = new Set();
+  const replaced = new Set();
   for (const [key, value] of state.pending) {
-    if (value.op === "delete") deleted.add(value.pkVal);
+    if (value.op === "delete" || value.op === "mongo-delete") deleted.add(value.pkVal);
+    else if (value.op === "mongo-update") {
+      for (const field of value.changes.keys()) cells.add(`${value.pkVal}${SEP}${field}`);
+    } else if (value.op === "mongo-replace") replaced.add(value.pkVal);
     else cells.add(key);
   }
-  return { cells, deleted };
+  return { cells, deleted, replaced };
 }
 
 async function applyPendingDialog() {
+  if (currentKind() === "mongodb") return applyMongoPendingDialog();
+  return applyPostgresPendingDialog();
+}
+
+async function applyPostgresPendingDialog() {
   const t = state.table;
   const page = t?.page;
   if (!t || !page || !page.pk || state.batchBusy) return;
@@ -1225,6 +1294,11 @@ function buildGrid(columns, rows, opts = {}) {
     desc,
     marks = null,
     sticky = false,
+    present = null,
+    rowIdentity = null,
+    onOpenRow = null,
+    inspectTitle = "Row inspector",
+    deleteTitle = "Delete row",
   } = opts;
   const idx = indices ?? columns.map((_, i) => i);
   const wrap = el("div", "gridwrap");
@@ -1288,18 +1362,25 @@ function buildGrid(columns, rows, opts = {}) {
   if (onDeleteRow || onInspect) headRow.appendChild(el("th"));
   table.appendChild(headRow);
 
-  rows.forEach((row) => {
+  rows.forEach((row, rowIndex) => {
     const tr = el("tr");
-    const pkVal = pkIndex >= 0 ? row[pkIndex] : null;
+    const pkVal = rowIdentity ? rowIdentity(row, rowIndex) : pkIndex >= 0 ? row[pkIndex] : null;
     const isDel = marks?.deleted.has(String(pkVal));
     if (isDel) tr.classList.add("pending-del");
+    if (onOpenRow) {
+      tr.classList.add("openable");
+      tr.addEventListener("dblclick", (event) => {
+        if (!event.target.closest("button")) onOpenRow(row, rowIndex);
+      });
+    }
     columns.forEach((c, i) => {
       const sourceIndex = idx[i];
       const value = row[sourceIndex];
-      const td = el("td", value === null ? "null" : "");
+      const missing = present?.[rowIndex]?.[sourceIndex] === false;
+      const td = el("td", missing ? "missing" : value === null ? "null" : "");
       const meta = columnMeta?.find((m) => m.name === c);
       const tclass = typeClass(meta?.type);
-      let display = value === null ? NULL_TEXT : esc(value);
+      let display = missing ? "missing" : value === null ? NULL_TEXT : esc(value);
       if (tclass === "bool" && value !== null) {
         const truthy = value === "t" || value === "true" || value === "1";
         const pill = el("span", `boolpill${truthy ? "" : " f"}`, truthy ? "✓ true" : "✗ false");
@@ -1313,20 +1394,23 @@ function buildGrid(columns, rows, opts = {}) {
         td.textContent = display;
       }
       if (tclass === "num") td.classList.add("num");
-      if (value !== null && !td.title) td.title = display;
+      if (missing) td.title = "Missing field";
+      else if (value !== null && !td.title) td.title = display;
       const markKey = `${pkVal}${SEP}${c}`;
-      if (marks && pkVal !== null && marks.cells.has(markKey)) td.classList.add("pending");
-      const canEdit = editable && pk && c !== pk && onEditCell && !isDel;
-      if (value !== null && prettyValue(value)) {
+      if (marks && pkVal !== null && (marks.cells.has(markKey) || marks.replaced.has(String(pkVal)))) td.classList.add("pending");
+      const canEdit = editable && pk && pkVal !== null && c !== pk && onEditCell && !isDel;
+      if (onOpenRow) {
+        td.title = "Double-click to open Key Editor";
+      } else if (!missing && value !== null && prettyValue(value)) {
         td.classList.add("viewable");
         if (!td.classList.contains("uuid")) td.title = "Click to view value";
         td.addEventListener("click", () =>
-          valueViewDialog(c, meta?.type, value, { onEdit: canEdit ? () => onEditCell(row, c) : undefined }),
+          valueViewDialog(c, meta?.type, value, { onEdit: canEdit ? () => onEditCell(row, c, rowIndex) : undefined }),
         );
-        if (canEdit) td.addEventListener("dblclick", () => onEditCell(row, c));
+        if (canEdit) td.addEventListener("dblclick", () => onEditCell(row, c, rowIndex));
       } else if (canEdit) {
         td.classList.add("editable");
-        td.addEventListener("dblclick", () => onEditCell(row, c));
+        td.addEventListener("dblclick", () => onEditCell(row, c, rowIndex));
       }
       tr.appendChild(td);
     });
@@ -1335,14 +1419,14 @@ function buildGrid(columns, rows, opts = {}) {
       if (onInspect) {
         const inspect = el("button", null, "⤢");
         inspect.classList.add("inspect");
-        inspect.title = "Row inspector";
-        inspect.addEventListener("click", () => onInspect(row));
+        inspect.title = inspectTitle;
+        inspect.addEventListener("click", () => onInspect(row, rowIndex));
         td.appendChild(inspect);
       }
       if (onDeleteRow) {
         const del = el("button", null, "✕");
-        del.title = "Delete row";
-        del.addEventListener("click", () => onDeleteRow(row));
+        del.title = deleteTitle;
+        del.addEventListener("click", () => onDeleteRow(row, rowIndex));
         td.appendChild(del);
       }
       tr.appendChild(td);
@@ -1531,12 +1615,15 @@ function renderData() {
 
   const bar = el("div", "databar");
   const page = t.page;
-  const writable = isPostgres() && !page?.readOnly && !t.loading;
+  const pgWritable = isPostgres() && !page?.readOnly && !t.loading;
+  const mongoWritable = currentKind() === "mongodb" && !page?.readOnly && !t.loading && hasMongoSnapshots(page);
+  const redisReady = currentKind() === "redis" && !!page && !t.loading;
   if (page) {
     const n = pendingCount();
     if (n) {
       const pend = el("button", "iconbtn pend");
-      pend.append(el("span", "dotp"), document.createTextNode(`${n} ${plural(n, "change")}`));
+      const pendingUnit = currentKind() === "mongodb" ? "document" : "change";
+      pend.append(el("span", "dotp"), document.createTextNode(`${n} ${plural(n, pendingUnit)}`));
       pend.title = "Review pending changes";
       pend.addEventListener("click", () => applyPendingDialog());
       bar.appendChild(pend);
@@ -1545,13 +1632,24 @@ function renderData() {
       bar.appendChild(apply);
     }
 
-    if (writable) {
-      const insert = el("button", "iconbtn", "＋ Row");
+    if (pgWritable) {
+      const insert = el("button", "iconbtn", "＋ New row");
       if (page.pk) insert.addEventListener("click", () => insertDialog());
       else {
         insert.disabled = true;
         insert.title = "Only for tables with a primary key";
       }
+      bar.appendChild(insert);
+    } else if (mongoWritable) {
+      const insert = el("button", "iconbtn", "＋ New document");
+      insert.addEventListener("click", () => mongoDocumentDialog({ table: t, connection, insert: true }));
+      bar.appendChild(insert);
+    } else if (redisReady) {
+      const insert = el("button", "iconbtn", "＋ New key");
+      insert.addEventListener("click", () => redisPanel.openCreate({
+        connection,
+        onCreated: () => refreshRedisTable(t, connection),
+      }));
       bar.appendChild(insert);
     }
 
@@ -1587,28 +1685,43 @@ function renderData() {
 
   const marks = pendingMarks();
   const entries = visibleEntries(page);
+  const mongoModel = currentKind() === "mongodb" && hasMongoSnapshots(page) ? mongoViewModel(page) : null;
+  const viewPage = mongoModel ? { ...page, rows: mongoModel.rows } : page;
   if (state.viewMode === "json") {
-    viewEl.appendChild(renderJsonView(page, entries, marks));
+    viewEl.appendChild(renderJsonView(viewPage, entries, marks, currentKind() === "mongodb" ? (row, rowIndex) => mongoRowIdentity(page, rowIndex) : null));
   } else if (state.viewMode === "text") {
-    viewEl.appendChild(renderTextView(page, entries));
+    viewEl.appendChild(renderTextView(viewPage, entries));
   } else {
     viewEl.appendChild(
-      buildGrid(entries.map((e) => e.name), page.rows, {
+      buildGrid(entries.map((e) => e.name), viewPage.rows, {
         pk: page.pk,
         pkIndex: page.pk ? page.columns.indexOf(page.pk) : -1,
-        editable: writable,
+        editable: pgWritable || mongoWritable,
         columnMeta: page.columnMeta,
         indices: entries.map((e) => e.index),
         widths: tablePrefs().widths,
         marks,
+        present: mongoModel?.present,
+        rowIdentity: currentKind() === "mongodb" ? (row, rowIndex) => mongoRowIdentity(page, rowIndex) : null,
         sticky: !!page.pk,
-        onEditCell: writable ? (row, col) => {
+        onEditCell: pgWritable ? (row, col) => {
           if (isCurrentTableContext(t, connection)) editCellDialog(row, col);
+        } : mongoWritable ? (row, col, rowIndex) => {
+          if (isCurrentTableContext(t, connection)) editMongoCellDialog(rowIndex, col);
         } : undefined,
-        onDeleteRow: writable ? (row) => {
+        onDeleteRow: pgWritable ? (row) => {
           if (isCurrentTableContext(t, connection)) deleteRowDialog(row);
+        } : mongoWritable ? (row, rowIndex) => {
+          if (isCurrentTableContext(t, connection)) deleteMongoDocumentDialog(rowIndex);
         } : undefined,
-        onInspect: (row) => openInspector(row),
+        onInspect: currentKind() === "redis" ? (row) => {
+          if (isCurrentTableContext(t, connection)) openRedisEditorForRow(t, connection, row);
+        } : (row, rowIndex) => openInspector(row, rowIndex),
+        onOpenRow: currentKind() === "redis" ? (row) => {
+          if (isCurrentTableContext(t, connection)) openRedisEditorForRow(t, connection, row);
+        } : null,
+        inspectTitle: currentKind() === "redis" ? "Open Key Editor" : currentKind() === "mongodb" ? "Document inspector" : "Row inspector",
+        deleteTitle: currentKind() === "mongodb" ? "Delete document" : "Delete row",
         onSort: (col) => reloadTable(0, col),
         sortColumns: page.sortColumns,
         onResize: async (col, width) => {
@@ -1623,6 +1736,8 @@ function renderData() {
 
   const footer = el("div", "datafoot");
   if (!page.pk) footer.appendChild(el("span", "notice", "No PK — read-only"));
+  else if (currentKind() === "redis") footer.appendChild(el("span", null, "Double-click a key to open Key Editor"));
+  else if (currentKind() === "mongodb" && !hasMongoSnapshots(page)) footer.appendChild(el("span", "notice", "Canonical document snapshots unavailable — read-only"));
   else if (page.readOnly) footer.appendChild(el("span", "notice", `${DB_TYPES[currentKind()].label} · read-only`));
   else footer.appendChild(el("span", null, `${t.schema}.${t.name}`));
   footer.appendChild(el("span", "spacer"));
@@ -1685,8 +1800,8 @@ function renderWelcome() {
     ? isPostgres()
       ? "Open a table on the left or create an SQL console. The tree stays in place when you switch between objects."
       : currentKind() === "mongodb"
-        ? "Select a collection on the left to browse documents."
-        : "Open keys on the left to browse Redis keys and values."
+        ? "Select a collection to browse and edit documents. Double-click a field, or use the document inspector for Form and canonical JSON editing."
+        : "Open keys on the left to browse Redis keys. Double-click a key to edit its value, entries, TTL, or lifecycle."
     : "Use a separate DSN for each PostgreSQL, MongoDB, or Redis connection."));
   const actions = el("div", "welcome-actions");
   if (!state.conns.length || isPostgres()) {
@@ -1820,15 +1935,16 @@ async function copyPage() {
 
 // ---------- view modes ----------
 
-function renderJsonView(page, entries, marks) {
+function renderJsonView(page, entries, marks, rowIdentity = null) {
   const wrap = el("div", "jsonview");
   const pkIndex = page.pk ? page.columns.indexOf(page.pk) : -1;
-  page.rows.slice(0, 200).forEach((row) => {
+  page.rows.slice(0, 200).forEach((row, rowIndex) => {
     const obj = Object.fromEntries(entries.map((e) => [e.name, row[e.index] === null ? null : row[e.index]]));
     const pretty = JSON.stringify(obj, null, 2);
     const block = el("div", "jrow");
     const headText = pkIndex >= 0 ? `${page.pk} = ${esc(row[pkIndex])}` : "row";
-    const head = el("div", "jhead", headText + (marks?.deleted.has(String(row[pkIndex])) ? "  ·  deleted" : ""));
+    const identity = rowIdentity ? rowIdentity(row, rowIndex) : row[pkIndex];
+    const head = el("div", "jhead", headText + (marks?.deleted.has(String(identity)) ? "  ·  deleted" : ""));
     const body = el("pre", "jbody");
     body.appendChild(renderJsonHighlighted(pretty));
     head.addEventListener("click", () => { body.style.display = body.style.display === "none" ? "" : "none"; });
@@ -1851,11 +1967,12 @@ function renderTextView(page, entries) {
 
 // ---------- row inspector ----------
 
-function openInspector(row) {
+function openInspector(row, rowIndex) {
   const t = state.table;
   const connection = state.connId;
   const page = t?.page;
   if (!t || !page) return;
+  if (currentKind() === "mongodb") return openMongoInspector(row, rowIndex);
   const wrap = el("div", "sheetwrap");
   const sheet = el("div", "sheet");
   const header = el("header");
@@ -1932,7 +2049,10 @@ function openInspector(row) {
   sheet.appendChild(footer);
   wrap.appendChild(sheet);
   wrap.addEventListener("mousedown", (event) => { if (event.target === wrap) close(); });
-  const onKey = (event) => { if (event.key === "Escape") { event.stopPropagation(); close(); } };
+  const onKey = (event) => {
+    if (document.querySelector(".overlay")) return;
+    if (event.key === "Escape") { event.stopPropagation(); close(); }
+  };
   function close() {
     wrap.remove();
     document.removeEventListener("keydown", onKey, true);
@@ -2523,6 +2643,210 @@ async function runExplain() {
 
 // ---------- edit dialogs ----------
 
+function localDateValue(date = new Date()) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function localTimeValue(date = new Date()) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+function localOffsetValue() {
+  const minutes = -new Date().getTimezoneOffset();
+  const sign = minutes < 0 ? "-" : "+";
+  const abs = Math.abs(minutes);
+  return `${sign}${String(Math.floor(abs / 60)).padStart(2, "0")}:${String(abs % 60).padStart(2, "0")}`;
+}
+
+function normalizeOffset(value) {
+  if (!value || value === "Z") return "+00:00";
+  const match = String(value).match(/^([+-])(\d{2}):?(\d{2})?$/);
+  if (!match) return null;
+  const hours = Number(match[2]);
+  const minutes = Number(match[3] || 0);
+  if (hours > 15 || minutes > 59) return null;
+  return `${match[1]}${match[2]}:${match[3] || "00"}`;
+}
+
+function createPostgresValueEditor(column, value, { insert = false } = {}) {
+  const type = String(column?.type || "text").toLowerCase();
+  const kind = type === "uuid" ? "uuid"
+    : type === "date" ? "date"
+      : type.startsWith("timestamp") ? (type.includes("with time zone") ? "timestamptz" : "timestamp")
+        : type.startsWith("time") ? (type.includes("with time zone") ? "timetz" : "time")
+          : "text";
+  const nullable = column?.nullable !== false;
+  const generated = !!column?.generated;
+  const databaseGenerated = generated || (insert && column?.identity === "ALWAYS");
+  const hasDefault = column?.defaultValue != null || !!column?.identity || generated;
+  let mode = insert && hasDefault ? "default" : (!insert && value === null ? "null" : "value");
+  if (mode === "null" && !nullable) mode = "value";
+  if (databaseGenerated) mode = "default";
+  let busy = false;
+  let draft = value === null || value === undefined ? "" : String(value);
+  const root = el("div", `typed-field${kind === "text" && (draft.length > 70 || draft.includes("\n") || /json|text|xml|bytea|\[\]/.test(type)) ? " wide" : ""}`);
+  const head = el("div", "typed-field-head");
+  head.appendChild(el("span", "typed-field-name", column.name));
+  head.appendChild(el("span", "typed-field-type", column.type || "text"));
+  if (!nullable) head.appendChild(el("span", "typed-constraint", "NOT NULL"));
+  if (column.pk) head.appendChild(el("span", "typed-constraint", "PRIMARY KEY"));
+  root.appendChild(head);
+
+  const modes = el("div", "typed-modes");
+  const modeButtons = new Map();
+  const addMode = (id, label) => {
+    const button = el("button", mode === id ? "on" : "", label);
+    button.type = "button";
+    button.addEventListener("click", () => setMode(id));
+    modeButtons.set(id, button);
+    modes.appendChild(button);
+  };
+  if (!databaseGenerated) addMode("value", "Value");
+  if (nullable && !databaseGenerated) addMode("null", "NULL");
+  if (insert && hasDefault) addMode("default", "Default");
+  root.appendChild(modes);
+
+  const row = el("div", "typed-input-row");
+  const longText = kind === "text" && (draft.length > 70 || draft.includes("\n") || /json|text|xml|bytea|\[\]/.test(type));
+  const input = longText ? el("textarea") : el("input");
+  if (!longText) input.type = kind === "date" || kind === "time" || kind === "timetz" ? (kind === "date" ? "date" : "time") : (kind === "timestamp" || kind === "timestamptz" ? "datetime-local" : "text");
+  if (["time", "timetz", "timestamp", "timestamptz"].includes(kind)) input.step = "0.000001";
+  input.setAttribute("aria-label", `${column.name} value`);
+  if (kind === "uuid") {
+    input.placeholder = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx";
+    input.spellcheck = false;
+  }
+  let offsetInput = null;
+  if (kind === "timestamptz") {
+    const match = draft.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?)(Z|[+-]\d{2}(?::?\d{2})?)?$/);
+    input.value = match ? `${match[1]}T${match[2]}` : draft.replace(" ", "T");
+    offsetInput = el("input");
+    offsetInput.type = "text";
+    offsetInput.className = "tz-offset";
+    offsetInput.style.cssText = "flex:0 0 76px;width:76px;text-align:center";
+    offsetInput.title = "Explicit UTC offset";
+    offsetInput.setAttribute("aria-label", "UTC offset");
+    offsetInput.value = normalizeOffset(match?.[3]) || localOffsetValue();
+  } else if (kind === "timestamp") {
+    const match = draft.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?)/);
+    input.value = match ? `${match[1]}T${match[2]}` : draft.replace(" ", "T");
+  } else if (kind === "timetz") {
+    const match = draft.match(/^(\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?)(Z|[+-]\d{2}(?::?\d{2})?)?$/);
+    input.value = match?.[1] || draft;
+    offsetInput = el("input");
+    offsetInput.type = "text";
+    offsetInput.style.cssText = "flex:0 0 76px;width:76px;text-align:center";
+    offsetInput.title = "Explicit UTC offset";
+    offsetInput.setAttribute("aria-label", "UTC offset");
+    offsetInput.value = normalizeOffset(match?.[2]) || localOffsetValue();
+  } else {
+    input.value = draft;
+  }
+  row.appendChild(input);
+  if (offsetInput) row.appendChild(offsetInput);
+  root.appendChild(row);
+
+  const tools = el("div", "typed-tools");
+  const toolButtons = [];
+  const addTool = (label, onClick) => {
+    const button = el("button", "iconbtn", label);
+    button.type = "button";
+    button.addEventListener("click", onClick);
+    toolButtons.push(button);
+    tools.appendChild(button);
+    return button;
+  };
+  if (kind === "uuid") {
+    addTool("Generate UUID", () => {
+      if (mode !== "value" || busy) return;
+      input.value = crypto.randomUUID();
+      input.dispatchEvent(new Event("input"));
+    });
+    addTool("Copy", async () => {
+      if (!input.value) return;
+      await host.writeClipboard(input.value).catch(() => toast("error", "Failed to copy."));
+      toast("success", "UUID copied.");
+    });
+  } else if (kind === "date") {
+    addTool("Today", () => { input.value = localDateValue(); input.dispatchEvent(new Event("input")); });
+  } else if (["time", "timetz", "timestamp", "timestamptz"].includes(kind)) {
+    addTool("Now", () => {
+      const now = new Date();
+      const date = localDateValue(now);
+      const time = localTimeValue(now);
+      input.value = kind === "time" || kind === "timetz" ? time : `${date}T${time}`;
+      if (offsetInput) offsetInput.value = localOffsetValue();
+      input.dispatchEvent(new Event("input"));
+    });
+  }
+  if (tools.childElementCount) root.appendChild(tools);
+  const preview = el("div", "typed-preview");
+  const error = el("div", "typed-error");
+  error.setAttribute("role", "alert");
+  root.append(preview, error);
+  if (insert && hasDefault) {
+    const detail = databaseGenerated ? "Generated by PostgreSQL; this column is omitted from INSERT." : `Database default: ${column.defaultValue || `${column.identity} identity`}`;
+    root.appendChild(el("div", "typed-note", detail));
+  } else if (kind === "timestamptz" || kind === "timetz") {
+    root.appendChild(el("div", "typed-note", "The entered clock time and explicit offset are sent without timezone conversion."));
+  } else if (kind === "timestamp") {
+    root.appendChild(el("div", "typed-note", "Timestamp without time zone is sent exactly as entered."));
+  }
+
+  const storedValue = () => {
+    if (kind === "timestamptz") return `${input.value.replace("T", " ")}${normalizeOffset(offsetInput.value) || offsetInput.value}`;
+    if (kind === "timetz") return `${input.value}${normalizeOffset(offsetInput.value) || offsetInput.value}`;
+    if (kind === "timestamp") return input.value.replace("T", " ");
+    return input.value;
+  };
+  const update = () => {
+    if (mode === "value") draft = input.value;
+    preview.innerHTML = "";
+    const label = mode === "null" ? "NULL" : mode === "default" ? "DEFAULT" : storedValue() || "(empty string)";
+    preview.append(document.createTextNode(mode === "value" ? "Stored value: " : insert ? "Insert mode: " : "Edit mode: "), el("strong", null, label));
+    error.textContent = "";
+    for (const button of toolButtons) button.disabled = busy || mode !== "value";
+  };
+  function setMode(next, restoreDraft = true) {
+    if (busy || !modeButtons.has(next)) return;
+    if (mode === "value" && next !== "value") draft = input.value;
+    mode = next;
+    if (mode === "value" && restoreDraft) input.value = draft;
+    for (const [id, button] of modeButtons) button.classList.toggle("on", id === mode);
+    const disabled = busy || mode !== "value";
+    input.disabled = disabled;
+    if (offsetInput) offsetInput.disabled = disabled;
+    update();
+  }
+  input.addEventListener("input", update);
+  offsetInput?.addEventListener("input", update);
+  setMode(mode, false);
+  return {
+    root,
+    focus: () => { if (mode === "value") setTimeout(() => input.focus(), 30); },
+    setBusy(value) {
+      busy = value;
+      for (const button of modeButtons.values()) button.disabled = busy;
+      input.disabled = busy || mode !== "value";
+      if (offsetInput) offsetInput.disabled = busy || mode !== "value";
+      update();
+    },
+    read: () => ({ mode, value: mode === "value" ? storedValue() : null }),
+    validate() {
+      let message = "";
+      if (mode === "null" && !nullable) message = `${column.name} is NOT NULL.`;
+      else if (mode === "value" && kind !== "text" && !input.value.trim()) message = `Enter ${kind === "uuid" ? "a UUID" : `a ${column.type}`} or choose ${insert && hasDefault ? "Default" : nullable ? "NULL" : "another value"}.`;
+      else if (mode === "value" && kind === "uuid" && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.value.trim())) message = "Enter a valid UUID or generate one.";
+      else if (mode === "value" && offsetInput && !normalizeOffset(offsetInput.value)) message = "Use an explicit UTC offset from -15:00 to +15:00, for example +03:00.";
+      error.textContent = message;
+      if (message) input.focus();
+      return !message;
+    },
+  };
+}
+
 function editCellDialog(row, col) {
   const t = state.table;
   const connection = state.connId;
@@ -2530,47 +2854,35 @@ function editCellDialog(row, col) {
   if (!t || !page) return;
   const colIndex = page.columns.indexOf(col);
   const current = row[colIndex];
-  const meta = page.columnMeta.find((c) => c.name === col);
+  const meta = page.columnMeta.find((c) => c.name === col) || { name: col, type: "text", nullable: true };
+  if (meta.generated || meta.identity === "ALWAYS") {
+    toast("info", `${col} is generated by PostgreSQL and cannot be edited directly.`);
+    return;
+  }
   const pkIndex = page.columns.indexOf(page.pk);
   const pkVal = row[pkIndex];
-  let isNull = current === null;
+  const editor = createPostgresValueEditor(meta, current);
   dialog({
-    title: `Edit: ${t.schema}.${t.name}`,
+    title: `Edit ${t.schema}.${t.name}.${col}`,
+    className: "typed-dialog",
     build: (body) => {
-      dialogBodyRef = body;
-      const label = el("label", "fld", `${col} — ${meta?.type ?? ""}${meta?.nullable ? "" : " NOT NULL"}`);
-      label.prepend(typeBadge(meta?.type));
-      const longValue = current !== null && (String(current).length > 60 || String(current).includes("\n"));
-      const input = longValue ? el("textarea") : el("input");
-      if (!longValue) input.type = "text";
-      input.value = current === null ? "" : esc(current);
-      if (!isNull) setTimeout(() => input.focus(), 30);
-      label.appendChild(input);
-      body.appendChild(label);
-      const nullLabel = el("label");
-      nullLabel.style.cssText = "display:flex;gap:6px;align-items:center;font-size:12px;color:var(--oc-muted,#999)";
-      const checkbox = el("input");
-      checkbox.type = "checkbox";
-      checkbox.checked = isNull;
-      checkbox.addEventListener("change", () => {
-        isNull = checkbox.checked;
-        input.disabled = isNull;
-      });
-      nullLabel.append(checkbox, document.createTextNode("NULL"));
-      body.appendChild(nullLabel);
-      body._input = input;
+      body.appendChild(editor.root);
+      body.appendChild(el("div", "typed-note", "The change is staged locally. Review it with Apply before anything is written to PostgreSQL. ⌘/Ctrl+Enter stages the change."));
+      editor.focus();
     },
     actions: [
       { label: "Cancel", value: null },
       {
         label: "Stage change",
         kind: "primary",
-        onClick: async (done) => {
+        shortcut: true,
+        onClick: (done) => {
           if (!isCurrentTableContext(t, connection)) { done(null); return; }
-          const body = dialogBodyRef;
-          const newValue = isNull ? null : body._input.value;
-          if (!isNull && newValue === esc(current)) { done(null); return; }
-          if (!stageEdit(pkVal, col, current === null ? null : esc(current), newValue, isNull)) {
+          if (!editor.validate()) return false;
+          const next = editor.read();
+          const newValue = next.mode === "null" ? null : next.value;
+          if ((next.mode === "null" && current === null) || (next.mode !== "null" && newValue === esc(current))) { done(null); return; }
+          if (!stageEdit(pkVal, col, current === null ? null : esc(current), newValue, next.mode === "null")) {
             done(null);
             toast("info", "This row is marked for deletion. The change was not staged.");
             return;
@@ -2590,39 +2902,40 @@ function insertDialog() {
   const connection = state.connId;
   let formBody;
   let inserting = false;
+  const editors = [];
   dialog({
     title: `New row: ${t.schema}.${t.name}`,
+    className: "typed-dialog",
     isBusy: () => inserting,
     build: (body) => {
       formBody = body;
-      const fields = [];
-      for (const c of page.columnMeta) {
-        const label = el("label", "fld", `${c.name} — ${c.type}${c.nullable ? "" : " NOT NULL"}`);
-        label.prepend(typeBadge(c.type));
-        const input = el("input");
-        input.type = "text";
-        input.placeholder = c.nullable ? "blank = omit" : "required";
-        label.appendChild(input);
-        body.appendChild(label);
-        fields.push([c.name, input]);
+      const grid = el("div", "typed-form-grid");
+      for (const column of page.columnMeta) {
+        const editor = createPostgresValueEditor(column, "", { insert: true });
+        editors.push({ column, editor });
+        grid.appendChild(editor.root);
       }
-      body._fields = fields;
-      body.appendChild(el("p", null, "Blank fields are omitted. To insert NULL, leave the field blank (provide a value for required columns)."));
+      body.appendChild(grid);
+      body.appendChild(el("div", "typed-note", "Value, NULL and Default are explicit. Default omits the column from INSERT; an empty Value remains an empty string. ⌘/Ctrl+Enter inserts the row."));
     },
     actions: [
       { label: "Cancel", value: null },
       {
         label: "Insert",
         kind: "primary",
+        shortcut: true,
         onClick: async (done) => {
-          if (inserting) return false;
+          if (inserting || !isCurrentTableContext(t, connection)) return false;
+          for (const { editor } of editors) if (!editor.validate()) return false;
           const values = {};
-          for (const [name, input] of formBody._fields) {
-            if (input.value.trim() !== "") values[name] = input.value;
+          for (const { column, editor } of editors) {
+            const next = editor.read();
+            if (next.mode !== "default") values[column.name] = next.mode === "null" ? null : next.value;
           }
           inserting = true;
           const buttons = [...formBody.parentElement.querySelectorAll(".acts button")];
           buttons.forEach((button) => { button.disabled = true; });
+          editors.forEach(({ editor }) => editor.setBusy(true));
           try {
             const data = await svc("POST", "/row", {
               body: { connection, schema: t.schema, table: t.name, values },
@@ -2637,6 +2950,7 @@ function insertDialog() {
           } catch (error) {
             inserting = false;
             buttons.forEach((button) => { button.disabled = false; });
+            editors.forEach(({ editor }) => editor.setBusy(false));
             toast("error", error.message);
             return false;
           }
@@ -2668,6 +2982,966 @@ async function deleteRowDialog(row) {
     toast("info", `Deletion staged. Pending changes: ${pendingCount()}.`);
   }
   render();
+}
+
+// ---------- MongoDB canonical document editing ----------
+
+const MONGO_FORBIDDEN_FIELDS = new Set(["__proto__", "prototype", "constructor"]);
+const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
+
+function hasMongoSnapshots(page) {
+  return !!page && Array.isArray(page.rows) && Array.isArray(page.columns)
+    && Array.isArray(page.documents) && Array.isArray(page.present)
+    && page.documents.length === page.rows.length && page.present.length === page.rows.length
+    && page.rows.every((row, index) => Array.isArray(row) && row.length === page.columns.length
+      && typeof page.documents[index] === "string"
+      && Array.isArray(page.present[index]) && page.present[index].length === page.columns.length);
+}
+
+function decimalNumberParts(source) {
+  const match = String(source).match(/^([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/);
+  if (!match) return null;
+  let digits = `${match[2]}${match[3] ?? ""}`.replace(/^0+/, "");
+  let exponent = Number(match[4] ?? 0) - (match[3]?.length ?? 0);
+  if (!Number.isSafeInteger(exponent)) return null;
+  while (digits.endsWith("0")) {
+    digits = digits.slice(0, -1);
+    exponent += 1;
+  }
+  return { negative: match[1] === "-" && digits.length > 0, digits: digits || "0", exponent };
+}
+
+function sameDecimalNumber(left, right) {
+  const a = decimalNumberParts(left);
+  const b = decimalNumberParts(right);
+  return !!a && !!b && a.negative === b.negative && a.digits === b.digits && a.exponent === b.exponent;
+}
+
+// Reject JSON numbers whose parse/stringify round trip would silently change the value.
+function assertMongoNumberPrecision(source) {
+  const tokens = /("(?:\\.|[^"\\])*")|(-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/g;
+  let match;
+  while ((match = tokens.exec(source)) !== null) {
+    if (!match[2]) continue;
+    const numeric = Number(match[2]);
+    if (!Number.isFinite(numeric)) throw new Error(`Number ${match[2]} is outside the finite double range. Use an explicit canonical BSON number wrapper.`);
+    const significand = match[2].split(/[eE]/)[0];
+    if (numeric === 0 && match[2].startsWith("-") && !/[1-9]/.test(significand)) throw new Error("Use a canonical $numberDouble wrapper to preserve negative zero explicitly.");
+    if (numeric === 0 && /[1-9]/.test(significand)) throw new Error(`Number ${match[2]} underflows to zero. Use a canonical $numberDecimal wrapper to preserve it.`);
+    if (Number.isInteger(numeric) && !Number.isSafeInteger(numeric)) {
+      const wrapper = /[.eE]/.test(match[2]) ? "$numberDouble or $numberDecimal" : "$numberLong";
+      throw new Error(`Integer ${match[2]} is outside the safe JavaScript range. Use a canonical ${wrapper} wrapper to preserve it explicitly.`);
+    }
+    if (numeric === 0) continue;
+    if (!sameDecimalNumber(match[2], JSON.stringify(numeric))) {
+      throw new Error(`Number ${match[2]} loses precision in a JavaScript round trip. Use canonical $numberDecimal for an exact decimal or $numberDouble for an explicit double.`);
+    }
+  }
+}
+
+function parseMongoJson(text, label = "MongoDB Extended JSON") {
+  if (typeof text !== "string" || !text.trim()) throw new Error(`${label} is required.`);
+  let value;
+  try {
+    value = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`${label} is not valid JSON: ${error.message}`);
+  }
+  assertMongoNumberPrecision(text);
+  return value;
+}
+
+function parseMongoDocument(text, label = "MongoDB document") {
+  const value = parseMongoJson(text, label);
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be a JSON object.`);
+  return value;
+}
+
+function validateMongoFieldName(name) {
+  if (typeof name !== "string" || !name || name.startsWith("$") || name.includes(".") || name.includes("\0") || MONGO_FORBIDDEN_FIELDS.has(name)) {
+    throw new Error("Field names must be nonempty and cannot start with $, contain dots or NUL, or use __proto__, prototype, or constructor.");
+  }
+  return name;
+}
+
+function validateMongoDocument(document) {
+  for (const name of Object.keys(document)) validateMongoFieldName(name);
+  return document;
+}
+
+function mongoDocumentAt(page, rowIndex) {
+  if (!hasMongoSnapshots(page) || !page.rows[rowIndex]) throw new Error("The canonical MongoDB document snapshot is unavailable. Reload the collection.");
+  return parseMongoDocument(page.documents[rowIndex], "The original MongoDB document");
+}
+
+function mongoRowIdentity(page, rowIndex) {
+  try {
+    const document = mongoDocumentAt(page, rowIndex);
+    return hasOwn(document, "_id") ? JSON.stringify(document._id) : null;
+  } catch {
+    return null;
+  }
+}
+
+function requireMongoIdentity(page, rowIndex) {
+  const document = mongoDocumentAt(page, rowIndex);
+  if (!hasOwn(document, "_id")) throw new Error("The original MongoDB document has no _id and cannot be edited safely.");
+  return JSON.stringify(document._id);
+}
+
+const mongoPendingKey = (id) => `${SEP}mongo${SEP}${id}`;
+
+function mongoPendingOperation(t, id) {
+  if (!t || state.pendingFor !== pendingKeyFor(t)) return null;
+  return state.pending.get(mongoPendingKey(id)) ?? null;
+}
+
+function mongoDisplayValue(value) {
+  if (value === null) return null;
+  if (typeof value === "string") return value;
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function mongoDocumentWithPending(page, rowIndex, operation) {
+  const original = mongoDocumentAt(page, rowIndex);
+  if (!operation) return original;
+  if (operation.op === "mongo-replace") return parseMongoDocument(operation.document, "The pending MongoDB document");
+  if (operation.op !== "mongo-update") return original;
+  const pairs = Object.entries(original).filter(([name]) => !operation.changes.has(name) || operation.changes.get(name).mode !== "missing");
+  for (const [name, change] of operation.changes) {
+    if (change.mode === "missing") continue;
+    const value = change.mode === "null" ? null : parseMongoJson(change.value, `Pending field ${name}`);
+    const index = pairs.findIndex(([field]) => field === name);
+    if (index >= 0) pairs[index] = [name, value];
+    else pairs.push([name, value]);
+  }
+  return Object.fromEntries(pairs);
+}
+
+function mongoCurrentDocument(page, rowIndex) {
+  const id = requireMongoIdentity(page, rowIndex);
+  return mongoDocumentWithPending(page, rowIndex, mongoPendingOperation(state.table, id));
+}
+
+function mongoFieldSnapshot(page, rowIndex, name) {
+  const columnIndex = page.columns.indexOf(name);
+  const id = requireMongoIdentity(page, rowIndex);
+  const operation = mongoPendingOperation(state.table, id);
+  const document = mongoDocumentWithPending(page, rowIndex, operation);
+  let present;
+  if (operation?.op === "mongo-replace") present = hasOwn(document, name);
+  else if (operation?.op === "mongo-update" && operation.changes.has(name)) present = operation.changes.get(name).mode !== "missing";
+  else present = columnIndex >= 0 && page.present[rowIndex]?.[columnIndex] === true;
+  return { present, value: present ? document[name] : undefined };
+}
+
+function mongoViewModel(page) {
+  const rows = page.rows.map((row) => [...row]);
+  const present = page.present.map((row) => [...row]);
+  if (state.pendingFor !== pendingKeyFor(state.table)) return { rows, present };
+  page.rows.forEach((row, rowIndex) => {
+    const id = mongoRowIdentity(page, rowIndex);
+    if (!id) return;
+    const operation = mongoPendingOperation(state.table, id);
+    if (!operation || operation.op === "mongo-delete") return;
+    const document = mongoDocumentWithPending(page, rowIndex, operation);
+    page.columns.forEach((name, columnIndex) => {
+      present[rowIndex][columnIndex] = hasOwn(document, name);
+      rows[rowIndex][columnIndex] = present[rowIndex][columnIndex] ? mongoDisplayValue(document[name]) : null;
+    });
+  });
+  return { rows, present };
+}
+
+function mongoTypeOf(value) {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  if (typeof value === "object") {
+    if (hasOwn(value, "$oid")) return "objectid";
+    if (hasOwn(value, "$date")) return "date";
+    if (hasOwn(value, "$numberDecimal")) return "decimal128";
+    if (hasOwn(value, "$numberLong")) return "long";
+    return "json";
+  }
+  return typeof value;
+}
+
+function mongoExample(type, name) {
+  if (name === "_id") return `{"$oid":"64b64c2f0e6a4b8f9c0d1e2f"}`;
+  if (type === "objectid") return `{"$oid":"64b64c2f0e6a4b8f9c0d1e2f"}`;
+  if (type === "date") return `{"$date":"2026-01-01T00:00:00.000Z"}`;
+  if (type === "decimal128") return `{"$numberDecimal":"12500.50"}`;
+  if (type === "double" || type === "number") return `42.5 or {"$numberDouble":"42.5"}`;
+  if (/^(int|long|int32|int64)/.test(type)) return `42 or {"$numberLong":"9007199254740993"}`;
+  if (type === "boolean") return "true";
+  if (type === "array") return `[1,"two",true]`;
+  if (type === "json") return `{"key":"value"}`;
+  return `"text"`;
+}
+
+function createMongoValueEditor({ name, type, value, present = true, immutable = false, allowObjectId = false }) {
+  let mode = immutable || (present && value !== null) ? "value" : present ? "null" : "missing";
+  let draft = present ? JSON.stringify(value) : "\"\"";
+  let busy = false;
+  const root = el("div", "typed-field wide");
+  const head = el("div", "typed-field-head");
+  head.appendChild(el("span", "typed-field-name", name));
+  head.appendChild(el("span", "typed-field-type", type || mongoTypeOf(value)));
+  if (name === "_id") head.appendChild(el("span", "typed-constraint", immutable ? "IMMUTABLE" : "OPTIONAL"));
+  root.appendChild(head);
+
+  const modes = el("div", "typed-modes");
+  const modeButtons = new Map();
+  const addMode = (id, label) => {
+    const button = el("button", mode === id ? "on" : "", label);
+    button.type = "button";
+    button.addEventListener("click", () => setMode(id));
+    modeButtons.set(id, button);
+    modes.appendChild(button);
+  };
+  if (!immutable) {
+    addMode("value", "Value");
+    addMode("null", "NULL");
+    addMode("missing", "Missing");
+    root.appendChild(modes);
+  }
+
+  const row = el("div", "typed-input-row");
+  const input = el("textarea");
+  input.value = draft;
+  input.placeholder = mongoExample(type, name);
+  input.spellcheck = false;
+  input.setAttribute("aria-label", `${name} canonical Extended JSON value`);
+  row.appendChild(input);
+  root.appendChild(row);
+
+  const tools = el("div", "typed-tools");
+  if (allowObjectId) {
+    const generate = el("button", "iconbtn", "Generate ObjectId");
+    generate.type = "button";
+    generate.addEventListener("click", () => {
+      if (busy || immutable) return;
+      const bytes = new Uint8Array(12);
+      crypto.getRandomValues(bytes);
+      const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+      setMode("value");
+      input.value = JSON.stringify({ $oid: hex });
+      draft = input.value;
+      update();
+    });
+    tools.appendChild(generate);
+    root.appendChild(tools);
+  }
+  const preview = el("div", "typed-preview");
+  const error = el("div", "typed-error");
+  error.setAttribute("role", "alert");
+  root.append(preview, error);
+  root.appendChild(el("div", "typed-note", immutable
+    ? "The original canonical _id is preserved and cannot be changed."
+    : "Value accepts canonical Extended JSON, including quoted strings. NULL stores null; Missing removes/omits this top-level field."));
+
+  const update = () => {
+    if (mode === "value" && !input.disabled) draft = input.value;
+    preview.innerHTML = "";
+    const valueLabel = mode === "null" ? "explicit null" : mode === "missing" ? "missing / unset" : draft || "(empty input is invalid)";
+    preview.append(document.createTextNode("Field state: "), el("strong", null, valueLabel));
+    error.textContent = "";
+  };
+  function setMode(next) {
+    if (busy || immutable || !modeButtons.has(next)) return;
+    if (mode === "value") draft = input.value;
+    mode = next;
+    if (mode === "value") input.value = draft;
+    for (const [id, button] of modeButtons) button.classList.toggle("on", id === mode);
+    input.disabled = mode !== "value";
+    update();
+  }
+  input.addEventListener("input", update);
+  setMode(mode);
+  if (immutable) input.disabled = true;
+  update();
+  return {
+    root,
+    focus: () => { if (mode === "value") setTimeout(() => input.focus(), 30); },
+    setBusy(value) {
+      busy = value;
+      for (const button of modeButtons.values()) button.disabled = busy;
+      for (const button of tools.children) button.disabled = busy;
+      input.disabled = busy || immutable || mode !== "value";
+    },
+    read: () => ({
+      mode,
+      value: mode === "value" ? JSON.stringify(parseMongoJson(input.value, `${name} value`)) : null,
+    }),
+    validate() {
+      error.textContent = "";
+      if (mode !== "value") return true;
+      try {
+        parseMongoJson(input.value, `${name} value`);
+        return true;
+      } catch (validationError) {
+        error.textContent = validationError.message;
+        input.focus();
+        return false;
+      }
+    },
+  };
+}
+
+function stageMongoCell(page, rowIndex, name, next) {
+  if (!ensurePendingScope()) return false;
+  const id = requireMongoIdentity(page, rowIndex);
+  validateMongoFieldName(name);
+  if (name === "_id") throw new Error("MongoDB _id is immutable.");
+  const key = mongoPendingKey(id);
+  const originalText = page.documents[rowIndex];
+  const originalDocument = parseMongoDocument(originalText);
+  let operation = state.pending.get(key);
+  if (operation?.op === "mongo-delete") return false;
+
+  if (operation?.op === "mongo-replace") {
+    const replacement = parseMongoDocument(operation.document);
+    const pairs = Object.entries(replacement).filter(([field]) => field !== name);
+    if (next.mode !== "missing") pairs.push([name, next.mode === "null" ? null : parseMongoJson(next.value)]);
+    const canonical = JSON.stringify(Object.fromEntries(pairs));
+    if (canonical === JSON.stringify(originalDocument)) state.pending.delete(key);
+    else operation.document = canonical;
+    return true;
+  }
+
+  if (!operation) {
+    operation = {
+      op: "mongo-update",
+      pkVal: id,
+      original: originalText,
+      present: [...page.present[rowIndex]],
+      changes: new Map(),
+    };
+    state.pending.set(key, operation);
+  }
+  const columnIndex = page.columns.indexOf(name);
+  const oldPresent = columnIndex >= 0 && operation.present[columnIndex] === true;
+  const oldValue = oldPresent ? JSON.stringify(originalDocument[name]) : null;
+  const unchanged = next.mode === "missing" ? !oldPresent
+    : next.mode === "null" ? oldPresent && oldValue === "null"
+      : oldPresent && next.value === oldValue;
+  if (unchanged) operation.changes.delete(name);
+  else operation.changes.set(name, { mode: next.mode, value: next.value, oldPresent, oldValue });
+  if (!operation.changes.size) state.pending.delete(key);
+  if (!state.pending.size) state.pendingFor = null;
+  return true;
+}
+
+function editMongoCellDialog(rowIndex, col) {
+  const t = state.table;
+  const connection = state.connId;
+  const page = t?.page;
+  if (!t || !page || currentKind() !== "mongodb") return;
+  let current;
+  let id;
+  try {
+    current = mongoFieldSnapshot(page, rowIndex, col);
+    id = requireMongoIdentity(page, rowIndex);
+  } catch (error) {
+    toast("error", error.message);
+    return;
+  }
+  if (mongoPendingOperation(t, id)?.op === "mongo-delete") {
+    toast("info", "This document is marked for deletion. Undo the deletion before editing it.");
+    return;
+  }
+  const meta = page.columnMeta.find((item) => item.name === col) || { name: col, type: mongoTypeOf(current.value) };
+  const editor = createMongoValueEditor({ name: col, type: meta.type, ...current });
+  let dialogError;
+  dialog({
+    title: `Edit ${t.schema}.${t.name}.${col}`,
+    className: "typed-dialog",
+    build: (body) => {
+      body.appendChild(editor.root);
+      body.appendChild(el("div", "typed-note", "The canonical field change is staged locally. Apply writes this document with its original snapshot; other documents are not part of a transaction. ⌘/Ctrl+Enter stages the change."));
+      dialogError = el("div", "typed-error");
+      dialogError.setAttribute("role", "alert");
+      body.appendChild(dialogError);
+      editor.focus();
+    },
+    actions: [
+      { label: "Cancel", value: null },
+      {
+        label: "Stage change",
+        kind: "primary",
+        shortcut: true,
+        onClick: (done) => {
+          if (!isCurrentTableContext(t, connection) || t.page !== page) {
+            dialogError.textContent = "The collection snapshot changed. Close this editor and reload before editing.";
+            return false;
+          }
+          if (!editor.validate()) return false;
+          try {
+            const next = editor.read();
+            const unchanged = next.mode === "missing" ? !current.present
+              : next.mode === "null" ? current.present && current.value === null
+                : current.present && next.value === JSON.stringify(current.value);
+            if (unchanged) { done(null); return; }
+            if (!stageMongoCell(page, rowIndex, col, next)) {
+              dialogError.textContent = "This document is marked for deletion. The change was not staged.";
+              return false;
+            }
+            toast("info", `Document change staged. Pending documents: ${pendingCount()}. Click “Apply”.`);
+            done(true);
+            render();
+          } catch (error) {
+            dialogError.textContent = error.message;
+            return false;
+          }
+        },
+      },
+    ],
+  });
+}
+
+function stageMongoReplacement(page, rowIndex, document) {
+  if (!ensurePendingScope()) return false;
+  const id = requireMongoIdentity(page, rowIndex);
+  const original = page.documents[rowIndex];
+  const key = mongoPendingKey(id);
+  if (state.pending.get(key)?.op === "mongo-delete") return false;
+  const canonical = JSON.stringify(document);
+  if (canonical === JSON.stringify(parseMongoDocument(original))) {
+    state.pending.delete(key);
+    if (!state.pending.size) state.pendingFor = null;
+  } else {
+    state.pending.set(key, { op: "mongo-replace", pkVal: id, original, document: canonical });
+  }
+  return true;
+}
+
+function mongoDocumentDialog({ table: t, connection, rowIndex = null, insert = false }) {
+  const page = t?.page;
+  if (!t || !page || (!insert && rowIndex === null)) return;
+  let originalId = null;
+  let initial;
+  try {
+    if (insert) initial = {};
+    else {
+      originalId = requireMongoIdentity(page, rowIndex);
+      if (mongoPendingOperation(t, originalId)?.op === "mongo-delete") {
+        toast("info", "This document is marked for deletion. Undo the deletion before editing it.");
+        return;
+      }
+      initial = mongoCurrentDocument(page, rowIndex);
+    }
+  } catch (error) {
+    toast("error", error.message);
+    return;
+  }
+
+  let activeTab = "form";
+  let busy = false;
+  let bodyRef;
+  let errorRef;
+  let content;
+  let editors = [];
+  let jsonInput;
+  let jsonText = JSON.stringify(initial, null, 2);
+  const tabButtons = new Map();
+
+  const readForm = () => {
+    const pairs = [];
+    for (const { name, editor } of editors) {
+      if (!editor.validate()) throw new Error(`Correct ${name} before continuing.`);
+      const next = editor.read();
+      if (next.mode === "missing") continue;
+      pairs.push([name, next.mode === "null" ? null : parseMongoJson(next.value, `${name} value`)]);
+    }
+    return validateMongoDocument(Object.fromEntries(pairs));
+  };
+  const readJson = () => validateMongoDocument(parseMongoDocument(jsonInput.value, "The MongoDB document"));
+
+  function buildForm(document) {
+    content.innerHTML = "";
+    editors = [];
+    const fields = el("div", "document-fields");
+    const entries = Object.entries(document);
+    entries.sort(([left], [right]) => left === "_id" ? -1 : right === "_id" ? 1 : 0);
+    if (insert && !entries.some(([name]) => name === "_id")) entries.unshift(["_id", undefined]);
+    for (const [name, value] of entries) {
+      const present = value !== undefined || hasOwn(document, name);
+      const metaType = page.columnMeta.find((item) => item.name === name)?.type;
+      const editor = createMongoValueEditor({
+        name,
+        type: metaType || mongoTypeOf(value),
+        value,
+        present,
+        immutable: !insert && name === "_id",
+        allowObjectId: insert && name === "_id",
+      });
+      editors.push({ name, editor });
+      fields.appendChild(editor.root);
+    }
+    content.appendChild(fields);
+    const addRow = el("div", "document-new-field");
+    const name = el("input");
+    name.type = "text";
+    name.placeholder = "newTopLevelField";
+    const label = el("label", "fld", "Add top-level field");
+    label.appendChild(name);
+    const add = el("button", "btn", "Add field");
+    add.addEventListener("click", () => {
+      try {
+        const fieldName = validateMongoFieldName(name.value);
+        if (editors.some((editor) => editor.name === fieldName)) throw new Error(`${fieldName} is already listed. Choose Value in its existing row.`);
+        const next = readForm();
+        next[fieldName] = "";
+        buildForm(next);
+      } catch (error) {
+        errorRef.textContent = error.message;
+      }
+    });
+    addRow.append(label, add);
+    content.appendChild(addRow);
+    content.appendChild(el("div", "typed-note", insert
+      ? "Form mode edits top-level fields only; nested values remain canonical Extended JSON. _id is optional. MongoDB generates it unless you explicitly enter one or choose Generate ObjectId."
+      : "Form mode edits top-level fields with Value, NULL and Missing. Use JSON for nested restructuring or field renaming. Saving stages a full-document replacement."));
+  }
+
+  function paintTabs() {
+    for (const [name, button] of tabButtons) {
+      button.classList.toggle("on", name === activeTab);
+      button.setAttribute("aria-selected", name === activeTab ? "true" : "false");
+    }
+  }
+
+  function showTab(next) {
+    if (busy || next === activeTab) return;
+    try {
+      if (activeTab === "form") {
+        const document = readForm();
+        jsonText = JSON.stringify(document, null, 2);
+      } else {
+        initial = readJson();
+      }
+      activeTab = next;
+      errorRef.textContent = "";
+      if (activeTab === "json") {
+        content.innerHTML = "";
+        jsonInput = el("textarea", "document-json");
+        jsonInput.value = jsonText;
+        jsonInput.spellcheck = false;
+        jsonInput.setAttribute("aria-label", "Complete canonical Extended JSON document");
+        jsonInput.addEventListener("input", () => { jsonText = jsonInput.value; });
+        content.appendChild(jsonInput);
+        content.appendChild(el("div", "typed-note", "Complete canonical Extended JSON document. Examples: {\"$oid\":\"…\"}, {\"$date\":\"2026-01-01T00:00:00.000Z\"}, {\"$numberLong\":\"9007199254740993\"}."));
+      } else {
+        buildForm(initial);
+      }
+      paintTabs();
+    } catch (error) {
+      errorRef.textContent = error.message;
+    }
+  }
+
+  dialog({
+    title: `${insert ? "New document" : "Edit document"}: ${t.schema}.${t.name}`,
+    className: "typed-dialog document-dialog",
+    isBusy: () => busy,
+    build: (body) => {
+      bodyRef = body;
+      const tabs = el("div", "document-tabs");
+      tabs.setAttribute("role", "tablist");
+      for (const [id, label] of [["form", "Form"], ["json", "JSON"]]) {
+        const button = el("button", id === activeTab ? "on" : "", label);
+        button.type = "button";
+        button.setAttribute("role", "tab");
+        button.addEventListener("click", () => showTab(id));
+        tabButtons.set(id, button);
+        tabs.appendChild(button);
+      }
+      body.appendChild(tabs);
+      content = el("div");
+      body.appendChild(content);
+      errorRef = el("div", "typed-error");
+      errorRef.setAttribute("role", "alert");
+      body.appendChild(errorRef);
+      body.appendChild(el("div", "typed-note", `${insert ? "Insert writes only this document." : "Review and Apply writes this replacement with an exact-original conflict check."} ⌘/Ctrl+Enter ${insert ? "inserts" : "stages"} the document.`));
+      buildForm(initial);
+    },
+    actions: [
+      { label: "Cancel", value: null },
+      {
+        label: insert ? "Insert document" : "Stage replacement",
+        kind: "primary",
+        shortcut: true,
+        onClick: async (done) => {
+          if (busy) return false;
+          if (!isCurrentTableContext(t, connection) || t.page !== page) {
+            errorRef.textContent = "The collection context or snapshot changed. Close this editor and reload before continuing.";
+            return false;
+          }
+          let document;
+          try {
+            document = activeTab === "form" ? readForm() : readJson();
+            if (!insert) {
+              if (!hasOwn(document, "_id") || JSON.stringify(document._id) !== originalId) throw new Error("The replacement must preserve the original canonical _id.");
+              if (!stageMongoReplacement(page, rowIndex, document)) throw new Error("This document is marked for deletion. Undo the deletion first.");
+            }
+          } catch (error) {
+            errorRef.textContent = error.message;
+            return false;
+          }
+          if (!insert) {
+            toast("info", `Document replacement staged. Pending documents: ${pendingCount()}. Click “Apply”.`);
+            done(true);
+            render();
+            return;
+          }
+
+          busy = true;
+          errorRef.textContent = "";
+          editors.forEach(({ editor }) => editor.setBusy(true));
+          const controls = [...bodyRef.parentElement.querySelectorAll("button, input, textarea, select")];
+          const disabled = controls.map((control) => control.disabled);
+          controls.forEach((control) => { control.disabled = true; });
+          try {
+            const result = await svc("POST", "/mongo/document", {
+              body: { connection, schema: t.schema, table: t.name, document: JSON.stringify(document) },
+            });
+            toast("success", `Inserted ${result.count ?? 1} document${result.insertedId ? ` with _id ${result.insertedId}` : ""}.`);
+            done(true);
+            if (state.connId === connection && state.table === t && state.mode === "data") {
+              await reloadTable(page.offset, undefined, { target: t, preservePending: true });
+            } else if (state.connId === connection && state.openTables.includes(t)) {
+              t.page = null;
+            }
+          } catch (error) {
+            busy = false;
+            controls.forEach((control, index) => { control.disabled = disabled[index]; });
+            editors.forEach(({ editor }) => editor.setBusy(false));
+            errorRef.textContent = error.message;
+            toast("error", error.message);
+            return false;
+          }
+        },
+      },
+    ],
+  });
+}
+
+async function deleteMongoDocumentDialog(rowIndex) {
+  const t = state.table;
+  const connection = state.connId;
+  const page = t?.page;
+  if (!t || !page || currentKind() !== "mongodb") return;
+  let id;
+  let original;
+  try {
+    id = requireMongoIdentity(page, rowIndex);
+    original = page.documents[rowIndex];
+  } catch (error) {
+    toast("error", error.message);
+    return;
+  }
+  const key = mongoPendingKey(id);
+  const already = state.pending.get(key)?.op === "mongo-delete";
+  const ok = await confirmDialog(already
+    ? `Undo deletion of MongoDB document _id = ${id}?`
+    : `Delete MongoDB document _id = ${id} from ${t.schema}.${t.name}?\n\nThe deletion is staged. Apply uses the exact original document and reports conflicts without overwriting them.`, { yes: already ? "Undo deletion" : "Delete document" });
+  if (!ok || !isCurrentTableContext(t, connection) || t.page !== page) return;
+  if (!ensurePendingScope()) return;
+  if (already) state.pending.delete(key);
+  else {
+    state.pending.delete(key);
+    state.pending.set(key, { op: "mongo-delete", pkVal: id, original });
+  }
+  if (!state.pending.size) state.pendingFor = null;
+  render();
+}
+
+function openMongoInspector(row, rowIndex) {
+  const t = state.table;
+  const connection = state.connId;
+  const page = t?.page;
+  if (!t || !page || rowIndex === undefined) return;
+  let id;
+  try {
+    id = requireMongoIdentity(page, rowIndex);
+  } catch (error) {
+    toast("error", error.message);
+    return;
+  }
+  const pending = mongoPendingOperation(t, id);
+  const rowDeleted = pending?.op === "mongo-delete";
+  const writable = !page.readOnly && !t.loading && hasMongoSnapshots(page);
+  const wrap = el("div", "sheetwrap");
+  const sheet = el("div", "sheet");
+  const header = el("header");
+  header.appendChild(el("h3", null, `${t.schema}.${t.name} — _id = ${id}`));
+  const closeButton = el("button", "iconbtn", "✕");
+  closeButton.addEventListener("click", close);
+  header.appendChild(closeButton);
+  sheet.appendChild(header);
+  const body = el("div", "sbody");
+
+  for (const meta of page.columnMeta) {
+    const current = mongoFieldSnapshot(page, rowIndex, meta.name);
+    const block = el("div", "srow");
+    const head = el("div", "sh");
+    head.appendChild(typeBadge(meta.type));
+    head.appendChild(el("span", null, `${meta.name} — ${meta.type}${meta.name === "_id" ? " · immutable" : ""}`));
+    if (writable && meta.name !== "_id" && !rowDeleted) {
+      const edit = el("button", "iconbtn", "Edit");
+      edit.addEventListener("click", () => {
+        close();
+        if (isCurrentTableContext(t, connection) && t.page === page) editMongoCellDialog(rowIndex, meta.name);
+      });
+      head.appendChild(edit);
+    }
+    block.appendChild(head);
+    const sv = el("div", `sv${!current.present || current.value === null ? " null" : ""}`);
+    const canonical = current.present ? JSON.stringify(current.value) : "Missing field";
+    sv.textContent = current.present && current.value === null ? "NULL (explicit null)" : canonical;
+    if (current.present && current.value !== null && prettyValue(canonical)) {
+      sv.classList.add("clickable");
+      sv.addEventListener("click", () => valueViewDialog(meta.name, `canonical ${meta.type}`, canonical, {
+        onEdit: writable && meta.name !== "_id" && !rowDeleted ? () => {
+          close();
+          if (isCurrentTableContext(t, connection) && t.page === page) editMongoCellDialog(rowIndex, meta.name);
+        } : undefined,
+      }));
+    }
+    block.appendChild(sv);
+    body.appendChild(block);
+  }
+  sheet.appendChild(body);
+
+  const footer = el("footer");
+  const copy = el("button", "btn", "Copy document");
+  copy.addEventListener("click", async () => {
+    try {
+      const document = mongoCurrentDocument(page, rowIndex);
+      await host.writeClipboard(JSON.stringify(document, null, 2));
+      toast("success", "Canonical document copied.");
+    } catch (error) {
+      toast("error", error.message);
+    }
+  });
+  footer.appendChild(copy);
+  if (writable) {
+    const edit = el("button", "btn primary", "Edit document");
+    edit.disabled = rowDeleted;
+    edit.addEventListener("click", () => {
+      close();
+      if (!rowDeleted && isCurrentTableContext(t, connection) && t.page === page) mongoDocumentDialog({ table: t, connection, rowIndex });
+    });
+    footer.appendChild(edit);
+    const del = el("button", "btn danger", rowDeleted ? "Undo deletion" : "Delete document");
+    del.addEventListener("click", async () => {
+      close();
+      if (isCurrentTableContext(t, connection) && t.page === page) await deleteMongoDocumentDialog(rowIndex);
+    });
+    footer.appendChild(del);
+  }
+  sheet.appendChild(footer);
+  wrap.appendChild(sheet);
+  wrap.addEventListener("mousedown", (event) => { if (event.target === wrap) close(); });
+  const onKey = (event) => {
+    if (document.querySelector(".overlay")) return;
+    if (event.key === "Escape") { event.stopPropagation(); close(); }
+  };
+  function close() {
+    wrap.remove();
+    document.removeEventListener("keydown", onKey, true);
+  }
+  document.addEventListener("keydown", onKey, true);
+  root.appendChild(wrap);
+}
+
+function mongoReviewValue(present, canonical) {
+  if (!present) return "Missing";
+  if (canonical === "null") return "NULL";
+  return canonical;
+}
+
+async function applyMongoPendingDialog() {
+  const t = state.table;
+  const page = t?.page;
+  if (!t || !page || state.batchBusy || currentKind() !== "mongodb") return;
+  const connection = state.connId;
+  const scope = pendingKeyFor(t);
+  const initialEntries = [...state.pending.entries()];
+  if (!initialEntries.length) return;
+  let applying = false;
+  let reviewBody;
+  let errorBox;
+  let applyButton;
+
+  const currentEntries = () => state.pendingFor === scope ? [...state.pending.entries()] : [];
+  const paintReview = (entries) => {
+    reviewBody.innerHTML = "";
+    const table = el("table", "review");
+    for (const [, operation] of entries) {
+      if (operation.op === "mongo-delete") {
+        const tr = el("tr", "del");
+        const td = el("td", "c", `delete document _id = ${operation.pkVal}`);
+        td.colSpan = 3;
+        tr.appendChild(td);
+        table.appendChild(tr);
+      } else if (operation.op === "mongo-replace") {
+        const tr = el("tr");
+        tr.appendChild(el("td", "c", `replace document _id = ${operation.pkVal}`));
+        tr.appendChild(el("td", "o", "exact original"));
+        tr.appendChild(el("td", "n", "full replacement"));
+        table.appendChild(tr);
+        const detailRow = el("tr");
+        const td = el("td");
+        td.colSpan = 3;
+        const details = el("details");
+        details.appendChild(el("summary", null, "Review original and canonical replacement"));
+        details.appendChild(el("div", "typed-note", "Original"));
+        const originalPre = el("pre");
+        originalPre.textContent = JSON.stringify(parseMongoDocument(operation.original), null, 2);
+        details.appendChild(originalPre);
+        details.appendChild(el("div", "typed-note", "Replacement"));
+        const replacementPre = el("pre");
+        replacementPre.textContent = JSON.stringify(parseMongoDocument(operation.document), null, 2);
+        details.appendChild(replacementPre);
+        td.appendChild(details);
+        detailRow.appendChild(td);
+        table.appendChild(detailRow);
+      } else {
+        for (const [name, change] of operation.changes) {
+          const tr = el("tr");
+          tr.appendChild(el("td", "c", `_id=${operation.pkVal} · ${name}`));
+          tr.appendChild(el("td", "o", mongoReviewValue(change.oldPresent, change.oldValue)));
+          tr.appendChild(el("td", "n", mongoReviewValue(change.mode !== "missing", change.mode === "null" ? "null" : change.value)));
+          table.appendChild(tr);
+        }
+      }
+    }
+    reviewBody.appendChild(table);
+    if (!entries.length) reviewBody.appendChild(el("p", null, "No pending MongoDB documents remain."));
+  };
+
+  state.batchBusy = true;
+  try {
+    const ok = await dialog({
+      title: `Apply ${initialEntries.length} MongoDB ${plural(initialEntries.length, "document")} — ${t.schema}.${t.name}`,
+      className: "typed-dialog document-dialog",
+      isBusy: () => applying,
+      build: (body) => {
+        reviewBody = el("div", "document-review");
+        body.appendChild(reviewBody);
+        paintReview(initialEntries);
+        body.appendChild(el("p", null, "Documents are applied sequentially, one operation per document. There is no cross-document transaction. Successful documents are removed from pending even if a later document conflicts or fails."));
+        errorBox = el("div", "typed-error");
+        errorBox.setAttribute("role", "alert");
+        body.appendChild(errorBox);
+      },
+      actions: [
+        { label: "Discard all", kind: "danger", onClick: (done) => { if (!applying) { clearPending(); done(null); render(); } } },
+        { label: "Close", value: null },
+        {
+          label: `Apply (${initialEntries.length})`,
+          kind: "primary",
+          shortcut: true,
+          onClick: async (done) => {
+            if (applying) return false;
+            if (!isCurrentTableContext(t, connection)) {
+              errorBox.textContent = "The collection context changed. Close this review before applying.";
+              return false;
+            }
+            const entries = currentEntries();
+            if (!entries.length) { done(true); return; }
+            applying = true;
+            errorBox.textContent = "";
+            const buttons = [...reviewBody.parentElement.parentElement.querySelectorAll(".acts button")];
+            applyButton = buttons[buttons.length - 1];
+            buttons.forEach((button) => { button.disabled = true; });
+            const failures = [];
+            let succeeded = 0;
+            for (const [key, operation] of entries) {
+              if (state.pending.get(key) !== operation) continue;
+              const body = { connection, schema: t.schema, table: t.name };
+              try {
+                if (operation.op === "mongo-update") {
+                  const setEntries = [];
+                  const unset = [];
+                  for (const [name, change] of operation.changes) {
+                    if (change.mode === "missing") unset.push(name);
+                    else setEntries.push([name, change.mode === "null" ? "null" : change.value]);
+                  }
+                  const set = Object.fromEntries(setEntries);
+                  await svc("PATCH", "/mongo/document", { body: { ...body, id: operation.pkVal, original: operation.original, set, unset } });
+                } else if (operation.op === "mongo-replace") {
+                  await svc("PUT", "/mongo/document", { body: { ...body, original: operation.original, document: operation.document } });
+                } else if (operation.op === "mongo-delete") {
+                  await svc("DELETE", "/mongo/document", { body: { ...body, id: operation.pkVal, original: operation.original } });
+                }
+                if (state.pending.get(key) === operation) state.pending.delete(key);
+                succeeded += 1;
+              } catch (error) {
+                failures.push(`_id ${operation.pkVal}: ${error.message}`);
+              }
+            }
+            if (!state.pending.size && state.pendingFor === scope) state.pendingFor = null;
+            const remaining = currentEntries();
+            paintReview(remaining);
+            if (succeeded) {
+              toast(failures.length ? "info" : "success", failures.length
+                ? `Applied ${succeeded} ${plural(succeeded, "document")}; ${failures.length} failed and remain pending.`
+                : `Applied ${succeeded} MongoDB ${plural(succeeded, "document")}.`);
+              if (state.connId === connection && state.table === t && state.mode === "data") {
+                await reloadTable(page.offset, undefined, { target: t, preservePending: true });
+              } else if (state.connId === connection && state.openTables.includes(t)) {
+                t.page = null;
+              }
+            }
+            if (!remaining.length) {
+              done(true);
+              render();
+              return;
+            }
+            applying = false;
+            buttons.forEach((button) => { button.disabled = false; });
+            applyButton.textContent = `Retry remaining (${remaining.length})`;
+            errorBox.textContent = `${failures.length ? failures.join("\n") : "Some documents were not applied."}\n\nSuccessful documents were removed. The entries above remain pending; no conflict was overwritten. Reload after closing if you need a fresh original.`;
+            toast("error", errorBox.textContent);
+            return false;
+          },
+        },
+      ],
+    });
+    if (ok) render();
+  } finally {
+    state.batchBusy = false;
+  }
+}
+
+// ---------- Redis key editor integration ----------
+
+function openRedisEditorForRow(t, connection, row) {
+  const page = t?.page;
+  if (!page || currentKind() !== "redis") return;
+  const keyIndex = page.columns.indexOf("key");
+  const typeIndex = page.columns.indexOf("type");
+  const key = row[keyIndex];
+  const type = row[typeIndex];
+  if (!key || !type) return toast("error", "The Redis key or type is unavailable. Reload the key list.");
+  redisPanel.openKey({
+    connection,
+    key: String(key),
+    type: String(type),
+    onListRefresh: () => refreshRedisTable(t, connection),
+  });
+}
+
+async function refreshRedisTable(t, connection) {
+  if (state.connId !== connection || !state.openTables.includes(t)) return;
+  if (state.table === t && state.mode === "data") {
+    await reloadTable(t.page?.offset ?? 0, undefined, { target: t, preservePending: true });
+  } else {
+    t.page = null;
+  }
 }
 
 async function deleteConnection(id) {
@@ -2809,6 +4083,7 @@ host.onReady(async (ctx) => {
   render();
   document.addEventListener("keydown", (event) => {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      if (document.querySelector(".overlay, .sheetwrap")) return;
       event.preventDefault();
       openPalette();
       return;
